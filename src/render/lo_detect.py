@@ -29,21 +29,28 @@ class SofficeInfo:
 
 def _bundled_candidates() -> list[Path]:
     """捆绑目录候选（发布包内 libreoffice/）。"""
+    cands: list[Path] = []
     bundle = paths.app_bundle_dir()
-    if sys.platform == "darwin" and bundle is not None:
-        # <.app>/Contents/Resources/libreoffice/LibreOffice.app/Contents/MacOS/soffice
-        return [
-            bundle
-            / "Contents"
-            / "Resources"
-            / "libreoffice"
-            / "LibreOffice.app"
-            / "Contents"
-            / "MacOS"
-            / "soffice"
-        ]
-    # Windows / 开发态：<exe目录>/libreoffice/program/soffice(.exe)
     exe_dir = paths.exe_dir()
+    if sys.platform == "darwin":
+        if bundle is not None:
+            # <.app>/Contents/Resources/libreoffice/LibreOffice.app/Contents/MacOS/soffice
+            cands.append(
+                bundle
+                / "Contents"
+                / "Resources"
+                / "libreoffice"
+                / "LibreOffice.app"
+                / "Contents"
+                / "MacOS"
+                / "soffice"
+            )
+        # 开发态/CI：<repo>/libreoffice/LibreOffice.app/Contents/MacOS/soffice
+        cands.append(
+            exe_dir / "libreoffice" / "LibreOffice.app" / "Contents" / "MacOS" / "soffice"
+        )
+        return cands
+    # Windows：<exe目录>/libreoffice/program/soffice.exe
     names = ["soffice.exe", "soffice"] if os.name == "nt" else ["soffice"]
     return [exe_dir / "libreoffice" / "program" / n for n in names]
 

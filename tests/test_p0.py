@@ -82,6 +82,18 @@ def test_detect_soffice_not_found(tmp_path, monkeypatch):
     assert any("未找到" not in c for c in info.candidates)
 
 
+def test_bundled_candidates_dev_layout_macos():
+    """开发态/CI：<repo>/libreoffice/LibreOffice.app 应为 macOS 捆绑候选。"""
+    import sys as _sys
+
+    if _sys.platform != "darwin":
+        import pytest as _pytest
+
+        _pytest.skip("仅 macOS")
+    cands = lo_detect._bundled_candidates()
+    assert any("libreoffice" in str(c) and "LibreOffice.app" in str(c) for c in cands)
+
+
 # ---------- selftest ----------
 
 def test_selftest_report_structure():
