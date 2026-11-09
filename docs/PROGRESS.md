@@ -21,7 +21,7 @@
 | P1 | 完成 | 2026-11-09 |
 | P2 | 完成 | 2026-11-09 |
 | P3 | 完成 | 2026-11-09 |
-| P4 | 未开始 | - |
+| P4 | 完成 | 2026-11-09 |
 | P5 | 未开始 | - |
 | P6 | 未开始 | - |
 | P7 | 未开始 | - |
@@ -61,3 +61,13 @@
 - 启动时 LO 缺失弹窗引导安装（离屏环境仅记日志不弹模态框，防 CI 卡死）
 - 修复记录：① QFileSystemModel 位于 QtWidgets 而非 QtCore；② QDir.entryInfoList 用 setSorting 而非位置参数；③ **conftest 必须在任何测试前创建 QApplication**——否则 paths._ensure_core_app 先建 QCoreApplication 单例，后续无法升级（qFatal abort）
 - 留人工：目录树点击、图标/列表切换、设置对话框交互、转换失败角标显示（GUI 操作项）
+
+## P4 验收记录（2026-11-09）
+
+- 模块：search_bar.py（SearchBar 300ms 防抖 + SearchResultsPanel 双击定位）、preview_panel.py（PreviewPanel 右侧懒加载 ±5 页窗口 / FullscreenPreview ←→/Space/PgUp/PgDn 翻页、Esc 退出）
+- MainWindow 接线：Ctrl/Cmd+F 聚焦搜索（QKeySequence.Find）、F11 全屏预览、Enter/双击=预览、选中变化→右侧预览；内容区 splitter 三栏（目录树｜内容+结果面板｜预览）
+- ScanWorker 扩展：扫描后对 page_count 为 NULL 的文件做全文回填（转换+提取+入库），带 progress 信号（状态栏"索引中 x/y"）；converter 增加进程级转换锁（soffice 同 profile 禁并发）
+- pytest：`59 passed in 47.29s`（防抖/结果面板/全文搜索/定位选中/懒加载/全屏翻页键盘事件）
+- GUI 实测：启动 18 秒无崩溃，日志确认全文回填转换链路正常（诗歌敬拜.pps 4.9s、诗歌合集.pptx 5.8s）
+- 修复记录：CLI --scan/--render-test 改用绝对路径（相对路径导致缓存 key 与 GUI 不一致、重复转换）
+- 留人工：Ctrl+F 实际键感、预览面板滚动懒加载、全屏预览画面质量（GUI 操作项）
