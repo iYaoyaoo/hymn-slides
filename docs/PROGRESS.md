@@ -100,3 +100,14 @@
 - 回归：pytest `81 passed`
 - 决策记录：full 变体所需 Intel dmg 已在 tools/downloads/（无需 --download 即完成本机构建，符合"无则标注 CI 产出"的更强路径）；msi 与 arm64 dmg 亦提前下载完毕，SHA256 已固化（CI 下载将命中校验）
 - 修复记录：PyInstaller 6.22 的 mac .app 布局中 PySide6 位于 Contents/Frameworks/PySide6/QtCore.abi3.so、pdfium 位于 Contents/Resources/pypdfium2_raw/libpdfium.dylib（非 libQtCore.dylib），断言定位已适配
+
+## P8 干跑迭代记录（2026-11-09）
+
+- 干跑 1（7ec7792）：windows pytest 失败——`test_selftest_passes_on_this_machine` 在无 LO 的 CI 上必然失败。修复：无 LO 环境自动 skip。
+- 干跑 2（cf29657）：windows 失败于 bundle_lo 中文 print（Windows 控制台 cp1252 → UnicodeEncodeError）。修复：workflow 全局 `PYTHONUTF8=1` + `PYTHONIOENCODING=utf-8`（符合"全程 UTF-8"约束）。同轮 mac-arm64 与 mac-intel Rosetta 两 job 首次全绿 ✓（Rosetta 路径：install-rosetta → python.org universal2 3.12.10 pkg → arch -x86_64 全链 → lipo 断言通过）。预防性修复：windowed exe 无控制台输出时 selftest 以退出码为准。
+- 干跑 3（ce49475）：windows "构建 full" 失败——`HymnSlides.exe --selftest` 180s 超时。根因：PyInstaller `--windowed` 在 Windows 下 sys.stdout/stderr 为 None，`print(report)` 抛 AttributeError → bootloader 弹模态错误框无人点击 → 进程永不退出。修复：main 入口 `_ensure_stdio()`（devnull 兜底）+ 顶层异常写 `HymnSlides-crash.log` 后干净退出（同时提升终端用户崩溃体验）+ build.py 失败时回读崩溃日志。
+- 真机观察：用户以 CI 产物（mac-intel-full.zip 解压，AppTranslocation 隔离）真机测试真实素材 `~/Downloads/诗歌投影直放版/`，与本地 pytest 并发导致 3 个测试环境性失败（非代码回归）：
+  ① soffice 同一 lo_profile 被两个进程争用 → 转换 rc=1。加固：每进程独立 profile 子目录 `lo_profile/p{pid}/`（退出清理+24h 过期清理），make_samples 同步改造；
+  ② SQLite `database is locked`——发现 `set_page_count` 未提交，导致 app 在转换间隙长期持有写锁（真实小 bug）。修复：set_page_count 立即 commit + 连接 timeout 5s→30s。修复后全量 82 passed（用户运行中的是旧版进程，竞态属预期，新版消除）。
+- 干跑 5（cc5c262，含全部修复）进行中；干跑 4（b42f7f7，仅 stdio 修复）结果将被其取代。
+- python.org universal2 固定为 3.12.10（python.org 最新 3.12.x macOS pkg；3.12.16 无 macos pkg，记录决策）。
