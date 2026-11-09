@@ -19,7 +19,7 @@
 | 文档（PRD/PLAN） | 完成 | 2026-11-09 |
 | P0 | 完成 | 2026-11-09 |
 | P1 | 完成 | 2026-11-09 |
-| P2 | 未开始 | - |
+| P2 | 完成 | 2026-11-09 |
 | P3 | 未开始 | - |
 | P4 | 未开始 | - |
 | P5 | 未开始 | - |
@@ -43,3 +43,12 @@
 - `python3 main.py --scan /tmp/scan_demo` → `文件总数: 2（新增 2 / 更新 0 / 跳过 0 / 删除 2），耗时 0.00s` exit=0（"删除 2"为清理此前 CLI 测试残留行，符合增量预期）
 - 决策记录：全文搜索 v1 用 LIKE（素材规模小，不引入 FTS5）；--scan 支持可选 PATH 参数（验收需要指定目录，主目录默认值不变）
 - 修复记录：QStandardPaths 枚举为 CacheLocation（非 AppCacheLocation）
+
+## P2 验收记录（2026-11-09）
+
+- 模块：converter.py（无头转换，独立 profile，120s 超时+重试 1 次）、pdfrender.py（pypdfium2 渲染 256/1920px+逐页文字提取）、thumbnail.py（RenderCache：pdf/img256/img1920 三级目录，key=sha1(路径+mtime)，超限最旧淘汰）
+- 决策记录：渲染出图引入 Pillow 13.0.0（pypdfium2 to_pil 配套，最简方案，已固定版本）；测试夹具 PDF（tests/fixtures/样本.pdf，LO 生成 38KB）入库，使无 LO 的 CI 也能跑渲染/提取测试；真实转换类测试无 LO 环境自动 skip（CI Windows/macOS pytest 阶段无 LO，非失败）
+- make_samples：`python3 tools/make_samples.py --with-legacy` → 8 个文件（5 .pptx + .ppt/.pps 3 个，3 层中文目录，52 页大文件）
+- pytest：`41 passed in 16.63s`
+- `python3 main.py --render-test samples` → 3/3 成功：诗歌敬拜.pps 2页 PDF 32KB｜缩略图 5KB｜放映页 41KB；诗歌敬拜.pptx 2页；诗歌合集.pptx 52页 PDF 112KB｜放映页 65KB（exit=0）
+- 修复记录：pypdfium2 页码越界抛 PdfiumError（非 IndexError），测试按实际异常断言
