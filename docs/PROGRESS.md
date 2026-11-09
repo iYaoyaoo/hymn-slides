@@ -16,8 +16,8 @@
 
 | 阶段 | 状态 | 完成时间 |
 |---|---|---|
-| 文档（PRD/PLAN） | 进行中 | - |
-| P0 | 未开始 | - |
+| 文档（PRD/PLAN） | 完成 | 2026-11-09 |
+| P0 | 完成 | 2026-11-09 |
 | P1 | 未开始 | - |
 | P2 | 未开始 | - |
 | P3 | 未开始 | - |
@@ -26,3 +26,12 @@
 | P6 | 未开始 | - |
 | P7 | 未开始 | - |
 | P8 | 未开始 | - |
+
+## P0 验收记录（2026-11-09）
+
+- 稳定 Python：uv 安装 cpython-3.12.16 (x86_64) → .venv；依赖：PySide6 6.12.0 / pypdfium2 5.15.1 / pytest 9.2.0 / python-pptx 1.0.2 / pyinstaller 6.22.3（已固定于 requirements.txt）
+- pytest：`13 passed in 0.18s`
+- `python3 main.py --selftest` → `SELFTEST RESULT: PASS`（OS: Darwin 24.6.0 x86_64；Python 3.12.16；LibreOffice 系统安装命中 /Applications/LibreOffice.app/Contents/MacOS/soffice，来源=system）
+- `python3 main.py`（GUI）后台运行 5 秒无崩溃（空主窗口正常启动）
+- 决策记录：selftest 模块放 src/utils/selftest.py（规范目录结构未指定位置，取最简方案）
+- 修复记录：GUI 启动改为先建 QApplication 再初始化日志（避免 QCoreApplication 单例冲突）
