@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,9 @@ from src.utils.logger import get_logger
 logger = get_logger("converter")
 
 TIMEOUT_SECONDS = 120
+
+# soffice 同一 UserInstallation 不允许并发实例：进程内串行化转换调用
+_CONVERT_LOCK = threading.Lock()
 
 
 @dataclass
@@ -56,29 +60,30 @@ def convert_to_pdf(
 
     start = time.time()
     last_error = ""
-    for attempt in (1, 2):
-        try:
-            proc = subprocess.run(  # noqa: S603（参数列表调用，无 shell）
-                cmd,
-                capture_output=True,
-                timeout=timeout,
-                check=False,
-            )
-            if proc.returncode == 0 and expected_pdf.is_file() and expected_pdf.stat().st_size > 0:
-                elapsed = time.time() - start
-                logger.info("转换成功（第 %d 次）：%s → %s，耗时 %.1fs", attempt, ppt_path.name, expected_pdf, elapsed)
-                return ConvertResult(ok=True, pdf_path=expected_pdf, elapsed=elapsed)
-            last_error = f"returncode={proc.returncode} stderr={proc.stderr.decode('utf-8', 'replace')[:300]}"
-            logger.warning(
-                "转换失败（第 %d 次）：%s，%s", attempt, ppt_path.name, last_error
-            )
-        except subprocess.TimeoutExpired:
-            last_error = f"超时（>{timeout}s）"
-            logger.warning("转换超时（第 %d 次）：%s", attempt, ppt_path.name)
-        except OSError as e:
-            last_error = str(e)
-            logger.error("转换异常：%s，%s", ppt_path.name, e)
-            break  # 环境级错误（soffice 不可执行等）不重试
+    with _CONVERT_LOCK:
+        for attempt in (1, 2):
+            try:
+                proc = subprocess.run(  # noqa: S603（参数列表调用，无 shell）
+                    cmd,
+                    capture_output=True,
+                    timeout=timeout,
+                    check=False,
+                )
+                if proc.returncode == 0 and expected_pdf.is_file() and expected_pdf.stat().st_size > 0:
+                    elapsed = time.time() - start
+                    logger.info("转换成功（第 %d 次）：%s → %s，耗时 %.1fs", attempt, ppt_path.name, expected_pdf, elapsed)
+                    return ConvertResult(ok=True, pdf_path=expected_pdf, elapsed=elapsed)
+                last_error = f"returncode={proc.returncode} stderr={proc.stderr.decode('utf-8', 'replace')[:300]}"
+                logger.warning(
+                    "转换失败（第 %d 次）：%s，%s", attempt, ppt_path.name, last_error
+                )
+            except subprocess.TimeoutExpired:
+                last_error = f"超时（>{timeout}s）"
+                logger.warning("转换超时（第 %d 次）：%s", attempt, ppt_path.name)
+            except OSError as e:
+                last_error = str(e)
+                logger.error("转换异常：%s，%s", ppt_path.name, e)
+                break  # 环境级错误（soffice 不可执行等）不重试
 
     logger.error("转换最终失败：%s，%s", ppt_path.name, last_error)
     return ConvertResult(ok=False, error=last_error, elapsed=time.time() - start)

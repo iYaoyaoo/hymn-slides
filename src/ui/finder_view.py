@@ -103,6 +103,8 @@ class FinderView(QListWidget):
         self.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self.setIconSize(self.sizeHintForIconMode())
         self.itemDoubleClicked.connect(self._on_double_clicked)
+        # Enter 键（itemActivated 含双击与回车）→ 双击处理器（F8：Enter=预览）
+        self.itemActivated.connect(self._on_double_clicked)
 
     @staticmethod
     def sizeHintForIconMode() -> object:

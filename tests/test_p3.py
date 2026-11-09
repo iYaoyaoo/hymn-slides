@@ -34,7 +34,7 @@ def config(tmp_path):
 def window(qapp, config, tmp_path):
     from src.ui.main_window import MainWindow
 
-    win = MainWindow(config=config, db_path=tmp_path / "idx.db")
+    win = MainWindow(config=config, db_path=tmp_path / "idx.db", scan_fulltext=False)
     yield win
     win.close()
 
@@ -158,7 +158,7 @@ def test_scan_worker(qapp, config, tmp_path, qtbot_skip=None):
     from src.ui.workers import ScanWorker
 
     results = {}
-    w = ScanWorker(config.main_dir, db_path=tmp_path / "idx2.db")
+    w = ScanWorker(config.main_dir, db_path=tmp_path / "idx2.db", fulltext=False)
     w.done.connect(lambda files, stats: results.update(files=files, stats=stats))
     w.failed.connect(lambda msg: results.update(err=msg))
     w.start()

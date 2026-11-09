@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QDir
+from PySide6.QtCore import QDir, Qt
 from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
@@ -19,27 +19,33 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.config import Config
+from src.core.indexer import Indexer
 from src.core.models import SUPPORTED_EXTS, SlideFile
 from src.core.scanner import is_hidden
+from src.core.search import search_all
 from src.render.lo_detect import detect_soffice
-from src.ui.finder_view import BreadcrumbBar, FinderView
+from src.ui.finder_view import BreadcrumbBar, FinderView, ROLE_PATH
+from src.ui.preview_panel import FullscreenPreview, PreviewPanel
+from src.ui.search_bar import SearchBar, SearchResultsPanel
 from src.ui.settings_dialog import SettingsDialog
 from src.ui.sidebar import SidebarTree
-from src.ui.workers import ScanWorker, ThumbWorker
+from src.ui.workers import PageRenderWorker, ScanWorker, ThumbWorker
 from src.utils.logger import get_logger
 
 logger = get_logger("main_window")
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, config: Config | None = None, db_path: Path | None = None):
+    def __init__(self, config: Config | None = None, db_path: Path | None = None, scan_fulltext: bool = True):
         super().__init__()
         self.config = config or Config()
         self.db_path = db_path
+        self._scan_fulltext = scan_fulltext
         self.setWindowTitle("诗歌投影 HymnSlides")
         self.resize(1280, 800)
 
         self.index_files: list[SlideFile] = []  # 扫描结果（搜索/统计用）
+        self._search_idx: Indexer | None = None
         self._history: list[Path] = []
         self._hist_pos = -1
         self._current_dir: Path = self.config.main_dir
@@ -53,6 +59,27 @@ class MainWindow(QMainWindow):
         self.thumb_worker.thumb_ready.connect(self._on_thumb_ready)
         self.thumb_worker.thumb_failed.connect(self._on_thumb_failed)
         self.thumb_worker.start()
+
+        self.page_worker = PageRenderWorker(parent=self)
+        self.page_worker.start()
+        self.preview_panel.set_worker(self.page_worker)
+        self.preview_panel.page_double_clicked.connect(
+            lambda ppt, page: self._open_fullscreen_preview(Path(ppt), page)
+        )
+
+        # 搜索：防抖 + 结果面板（F4）
+        self.search_bar = SearchBar(self.search_edit, self._do_search, self)
+        self.search_results = SearchResultsPanel()
+        self.content_splitter.addWidget(self.search_results)  # 初始隐藏
+        self.search_results.locate_requested.connect(self._locate_search_result)
+
+        # 快捷键（F8）
+        from PySide6.QtGui import QKeySequence, QShortcut
+
+        QShortcut(QKeySequence(QKeySequence.StandardKey.Find), self).activated.connect(self._focus_search)
+        QShortcut(QKeySequence(Qt.Key.Key_F11), self).activated.connect(
+            lambda: self._open_fullscreen_preview_from_finder()
+        )
 
         self._warn_if_no_libreoffice()
         self.navigate(self.config.main_dir, push_history=True)
@@ -116,13 +143,21 @@ class MainWindow(QMainWindow):
 
         self.finder = FinderView()
         self.finder.open_dir_requested.connect(lambda p: self.navigate(Path(p)))
-        self.finder.open_file_requested.connect(self._on_file_double_clicked)  # P4 接预览
+        self.finder.open_file_requested.connect(self._on_file_double_clicked)
+        self.finder.itemSelectionChanged.connect(self._on_finder_selection_changed)
 
-        splitter = QSplitter()
-        splitter.addWidget(self.sidebar)
-        splitter.addWidget(self.finder)
-        splitter.setSizes([240, 1040])
-        self.setCentralWidget(splitter)
+        self.preview_panel = PreviewPanel()
+
+        self.content_splitter = QSplitter()
+        self.content_splitter.setOrientation(Qt.Orientation.Vertical)
+        self.content_splitter.addWidget(self.finder)
+
+        self.central_splitter = QSplitter()
+        self.central_splitter.addWidget(self.sidebar)
+        self.central_splitter.addWidget(self.content_splitter)
+        self.central_splitter.addWidget(self.preview_panel)
+        self.central_splitter.setSizes([220, 820, 240])
+        self.setCentralWidget(self.central_splitter)
 
     # ---------- 导航（F2：后退/前进） ----------
 
@@ -185,8 +220,60 @@ class MainWindow(QMainWindow):
         self.finder.mark_failed(ppt_path)
 
     def _on_file_double_clicked(self, path: str) -> None:
-        # P4 实现全屏预览；P3 阶段仅记录选中
-        logger.info("双击文件（预览在 P4 接入）：%s", path)
+        """双击/Enter 文件 → 全屏预览（F5/F8）。"""
+        self._open_fullscreen_preview(Path(path))
+
+    def _on_finder_selection_changed(self) -> None:
+        """选中变化 → 右侧预览面板（F5）。"""
+        p = self.finder.current_path()
+        if p is None:
+            self.preview_panel.set_file(None)
+            return
+        path = Path(p)
+        self.preview_panel.set_file(path if path.suffix.lower() in SUPPORTED_EXTS else None)
+
+    def _open_fullscreen_preview(self, ppt: Path, page: int = 0) -> None:
+        dlg = FullscreenPreview(self.page_worker, ppt, page, parent=self)
+        dlg.exec()
+
+    def _open_fullscreen_preview_from_finder(self) -> None:
+        """F11：对当前选中文件全屏预览。"""
+        p = self.finder.current_path()
+        if p is not None and Path(p).suffix.lower() in SUPPORTED_EXTS:
+            self._open_fullscreen_preview(Path(p))
+
+    # ---------- 搜索（F4） ----------
+
+    def _focus_search(self) -> None:
+        self.search_edit.setFocus()
+        self.search_edit.selectAll()
+
+    def _search_index(self) -> Indexer:
+        if self._search_idx is None:
+            self._search_idx = Indexer(self.db_path)
+        return self._search_idx
+
+    def _do_search(self, keyword: str) -> None:
+        kw = keyword.strip()
+        if not kw:
+            self.search_results.hide_panel()
+            return
+        results = search_all(self._search_index()._conn, kw)
+        self.search_results.show_results(results, kw)
+
+    def _locate_search_result(self, path: str, page: int) -> None:
+        """双击搜索结果 → 定位到所在目录并选中文件。"""
+        p = Path(path)
+        if not p.is_file():
+            self.statusBar().showMessage("文件已不存在，可能已被移动或删除", 5000)
+            return
+        self.navigate(p.parent)
+        for i in range(self.finder.count()):
+            item = self.finder.item(i)
+            if item.data(ROLE_PATH) == path:
+                self.finder.setCurrentItem(item)
+                self.finder.scrollToItem(item)
+                break
 
     # ---------- 视图切换（F3） ----------
 
@@ -204,10 +291,17 @@ class MainWindow(QMainWindow):
 
     def start_scan(self) -> None:
         self.statusBar().showMessage("扫描中…")
-        self._scan_worker = ScanWorker(self.config.main_dir, db_path=self.db_path, parent=self)
+        self._scan_worker = ScanWorker(
+            self.config.main_dir, db_path=self.db_path, fulltext=self._scan_fulltext, parent=self
+        )
+        self._scan_worker.progress.connect(self._on_scan_progress)
         self._scan_worker.done.connect(self._on_scan_done)
         self._scan_worker.failed.connect(self._on_scan_failed)
         self._scan_worker.start()
+
+    def _on_scan_progress(self, done: int, total: int) -> None:
+        if total > 0:
+            self.statusBar().showMessage(f"索引中（转换 PDF 提取文字）{done}/{total}")
 
     def _on_scan_done(self, files, stats) -> None:
         self.index_files = files
@@ -252,7 +346,12 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self.thumb_worker.request_stop()
         self.thumb_worker.wait(8000)
+        self.page_worker.request_stop()
+        self.page_worker.wait(8000)
         sw = getattr(self, "_scan_worker", None)
         if sw is not None and sw.isRunning():
             sw.wait(5000)
+        if self._search_idx is not None:
+            self._search_idx.close()
+            self._search_idx = None
         super().closeEvent(event)

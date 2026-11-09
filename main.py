@@ -34,7 +34,7 @@ def cmd_scan(target: str | None) -> int:
     from src.core.config import Config
     from src.core.indexer import Indexer
 
-    root = Path(target).expanduser() if target and target != "DEFAULT" else Config().main_dir
+    root = Path(target).expanduser().resolve() if target and target != "DEFAULT" else Config().main_dir
     with Indexer() as idx:
         stats = idx.sync_scan(root)
     print(f"扫描目录: {root}")
@@ -57,7 +57,7 @@ def cmd_render_test(target: str | None) -> int:
     from src.core.scanner import scan_directory
     from src.render.thumbnail import RenderCache
 
-    root = Path(target).expanduser() if target and target != "DEFAULT" else Config().main_dir
+    root = Path(target).expanduser().resolve() if target and target != "DEFAULT" else Config().main_dir
     files = scan_directory(root)[:3]  # 最多 3 个文件，控制验收时长
     if not files:
         print(f"目录中未找到支持的 PPT 文件: {root}")
