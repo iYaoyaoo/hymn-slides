@@ -130,11 +130,10 @@ def test_config_defaults(tmp_path, monkeypatch):
 def test_cli_unimplemented_commands_exit_2(capsys):
     import main as main_mod
 
-    assert main_mod.main(["--scan"]) == 2
     assert main_mod.main(["--render-test"]) == 2
     assert main_mod.main(["--list-screens"]) == 2
     captured = capsys.readouterr()
-    assert "P1" in captured.out and "P2" in captured.out and "P5" in captured.out
+    assert "P2" in captured.out and "P5" in captured.out
 
 
 def test_cli_selftest_exit_code():

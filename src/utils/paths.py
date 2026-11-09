@@ -77,7 +77,7 @@ def cache_dir() -> Path:
     """缓存目录（AppCacheLocation；便携模式落 data/cache）。"""
     if is_portable():
         return data_dir() / "cache"
-    return qstandard_path(QStandardPaths.StandardLocation.AppCacheLocation)
+    return qstandard_path(QStandardPaths.StandardLocation.CacheLocation)
 
 
 def log_dir() -> Path:

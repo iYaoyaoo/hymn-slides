@@ -13,7 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hymn-slides", description="诗歌投影：Windows/macOS 教会诗歌 PPT 放映管理器"
     )
-    parser.add_argument("--scan", action="store_true", help="扫描主目录并输出统计（P1 实现）")
+    parser.add_argument("--scan", metavar="PATH", nargs="?", const="DEFAULT", help="扫描主目录（或指定目录）并输出统计")
     parser.add_argument("--render-test", metavar="PATH", nargs="?", const="DEFAULT", help="对素材执行转换并渲染出图（P2 实现）")
     parser.add_argument("--list-screens", action="store_true", help="枚举显示器（P5 实现）")
     parser.add_argument("--selftest", action="store_true", help="环境自检（OS/Python/LibreOffice）")
@@ -28,9 +28,25 @@ def cmd_selftest() -> int:
     return 0 if ok else 1
 
 
-def cmd_scan() -> int:
-    print("--scan 将在阶段 P1 实现（当前 P0：扫描/索引/搜索）")
-    return 2
+def cmd_scan(target: str | None) -> int:
+    from pathlib import Path
+
+    from src.core.config import Config
+    from src.core.indexer import Indexer
+
+    root = Path(target).expanduser() if target and target != "DEFAULT" else Config().main_dir
+    with Indexer() as idx:
+        stats = idx.sync_scan(root)
+    print(f"扫描目录: {root}")
+    print(
+        f"文件总数: {stats.scanned}（新增 {stats.added} / 更新 {stats.updated} / "
+        f"跳过 {stats.unchanged} / 删除 {stats.removed}），耗时 {stats.elapsed:.2f}s"
+    )
+    if stats.errors:
+        for e in stats.errors:
+            print(f"错误: {e}")
+        return 1
+    return 0
 
 
 def cmd_render_test(target: str | None) -> int:
@@ -65,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if not (args.selftest or args.scan or args.render_test is not None or args.list_screens):
+    if not (args.selftest or args.scan is not None or args.render_test is not None or args.list_screens):
         return run_gui()
 
     from src.utils.logger import setup_logging
@@ -74,8 +90,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.selftest:
         return cmd_selftest()
-    if args.scan:
-        return cmd_scan()
+    if args.scan is not None:
+        return cmd_scan(args.scan)
     if args.render_test is not None:
         return cmd_render_test(args.render_test)
     return cmd_list_screens()
