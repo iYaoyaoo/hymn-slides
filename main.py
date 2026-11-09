@@ -114,17 +114,23 @@ def run_gui() -> int:
 
 
 def _ensure_stdio() -> None:
-    """frozen windowed（Windows GUI 子系统）下 sys.stdout/stderr 为 None。
+    """全程 UTF-8 输出保障（规范 §3-3）。
 
-    print/日志写入会抛 AttributeError 并触发 PyInstaller 模态错误框（无人点击即挂起）。
-    用 os.devnull 兜底（macOS 从终端启动时 stdout 正常，不受影响）。
+    - frozen windowed 且无控制台：sys.stdout/stderr 可能为 None → devnull 兜底；
+    - Windows 下流编码为 ANSI 代码页（cp1252/GBK），中文 print/日志会抛
+      UnicodeEncodeError（并触发 PyInstaller 模态错误框）→ 统一重配 UTF-8+replace。
     """
     import os
 
-    if sys.stdout is None:  # type: ignore[assignment]
-        sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
-    if sys.stderr is None:  # type: ignore[assignment]
-        sys.stderr = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))  # noqa: SIM115
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except (AttributeError, ValueError, OSError):
+            pass
 
 
 def main(argv: list[str] | None = None) -> int:
