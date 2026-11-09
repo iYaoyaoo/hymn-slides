@@ -22,7 +22,7 @@
 | P2 | 完成 | 2026-11-09 |
 | P3 | 完成 | 2026-11-09 |
 | P4 | 完成 | 2026-11-09 |
-| P5 | 未开始 | - |
+| P5 | 完成 | 2026-11-09 |
 | P6 | 未开始 | - |
 | P7 | 未开始 | - |
 | P8 | 未开始 | - |
@@ -71,3 +71,12 @@
 - GUI 实测：启动 18 秒无崩溃，日志确认全文回填转换链路正常（诗歌敬拜.pps 4.9s、诗歌合集.pptx 5.8s）
 - 修复记录：CLI --scan/--render-test 改用绝对路径（相对路径导致缓存 key 与 GUI 不一致、重复转换）
 - 留人工：Ctrl+F 实际键感、预览面板滚动懒加载、全屏预览画面质量（GUI 操作项）
+
+## P5 验收记录（2026-11-09）
+
+- 模块：display_manager.py（QScreen 枚举/screenAdded/screenRemoved 动态响应/decide_* 纯几何决策——主显示器优先、非主取面积最大、无任何身份假设）、projection_window.py（无边框全屏、1920px 页、←→/Space/PgUp/PgDn/Esc）、show_controller.py（idle→countdown→showing→ended 状态机 + 3 秒倒计时确认层 + 拔屏自动结束提示）
+- MainWindow：F5 快捷键 → start_show（无选中给状态栏提示）
+- pytest：`75 passed in 56.03s`（决策纯函数/枚举/CLI/翻页键盘/倒计时归零与点击取消/状态机流转/F5 接线）
+- `python3 main.py --list-screens` → `检测到 2 块显示器：屏幕 1: Built-in Retina Display 1680x1050 @(0,0)（主显示器）；屏幕 2: 随航显示器 1325x892 @(1680,158)` exit=0（Sidecar 扩展屏正确识别）✓
+- 修复记录：--list-screens 需先于日志初始化创建 QApplication（QCoreApplication 单例不可升级）；P0 旧"未实现"CLI 断言改为全实现断言
+- 留人工：真实屏幕上的倒计时放映观感、Esc 结束、断开 Sidecar 后的拔屏提示（P6 双屏联测时一并人工验证；本机 2 屏常驻，单屏路径需拔 Sidecar 后测试）

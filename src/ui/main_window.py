@@ -80,6 +80,13 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key.Key_F11), self).activated.connect(
             lambda: self._open_fullscreen_preview_from_finder()
         )
+        QShortcut(QKeySequence(Qt.Key.Key_F5), self).activated.connect(self.start_show)
+
+        # 放映控制器（F6；双屏编排 P6 扩展）
+        from src.show.show_controller import ShowController
+
+        self.show_controller = ShowController(self.page_worker, self.config, parent=self)
+        self.show_controller.state_changed.connect(self._on_show_state_changed)
 
         self._warn_if_no_libreoffice()
         self.navigate(self.config.main_dir, push_history=True)
@@ -241,6 +248,23 @@ class MainWindow(QMainWindow):
         p = self.finder.current_path()
         if p is not None and Path(p).suffix.lower() in SUPPORTED_EXTS:
             self._open_fullscreen_preview(Path(p))
+
+    # ---------- 放映（F6/F7） ----------
+
+    def start_show(self) -> None:
+        """F5：放映当前选中文件。"""
+        p = self.finder.current_path()
+        if p is None or Path(p).suffix.lower() not in SUPPORTED_EXTS:
+            self.statusBar().showMessage("请先选择一个诗歌文件再放映", 4000)
+            return
+        from src.show.display_manager import enumerate_screens
+
+        screens = enumerate_screens()
+        self.show_controller.start(Path(p), screens, dual_allowed=False)
+
+    def _on_show_state_changed(self, state: str) -> None:
+        if state == "showing":
+            self.statusBar().showMessage("放映中…（Esc 结束）")
 
     # ---------- 搜索（F4） ----------
 

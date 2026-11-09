@@ -127,12 +127,17 @@ def test_config_defaults(tmp_path, monkeypatch):
 
 # ---------- CLI 分发 ----------
 
-def test_cli_unimplemented_commands_exit_2(capsys):
+def test_cli_all_flags_run(qapp):
+    """--scan/--render-test/--list-screens/--selftest 均已实现，应正常返回而非 exit 2。"""
     import main as main_mod
 
-    assert main_mod.main(["--list-screens"]) == 2
-    captured = capsys.readouterr()
-    assert "P5" in captured.out
+    from src.render.lo_detect import detect_soffice
+
+    lo_ok = detect_soffice().found
+    rc = main_mod.main(["--list-screens"])
+    assert rc == 0
+    rc_self = main_mod.main(["--selftest"])
+    assert rc_self == (0 if lo_ok else 1)
 
 
 def test_cli_selftest_exit_code():

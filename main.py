@@ -84,8 +84,15 @@ def cmd_render_test(target: str | None) -> int:
 
 
 def cmd_list_screens() -> int:
-    print("--list-screens 将在阶段 P5 实现（放映与多屏）")
-    return 2
+    """枚举显示器（F7）：仅展示，不做任何屏幕身份假设。"""
+    from src.show.display_manager import enumerate_screens
+
+    screens = enumerate_screens()
+    print(f"检测到 {len(screens)} 块显示器：")
+    for i, s in enumerate(screens, 1):
+        tag = "（主显示器）" if s.is_primary else ""
+        print(f"  屏幕 {i}: {s.name} {s.geometry[2]}x{s.geometry[3]} @({s.geometry[0]},{s.geometry[1]}){tag}")
+    return 0 if screens else 1
 
 
 def run_gui() -> int:
@@ -112,6 +119,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if not (args.selftest or args.scan is not None or args.render_test is not None or args.list_screens):
         return run_gui()
+
+    if args.list_screens:
+        # QApplication 必须先于日志初始化创建（否则 QCoreApplication 单例无法升级）
+        from PySide6.QtWidgets import QApplication
+
+        if QApplication.instance() is None:
+            QApplication(["hymn-slides"])
 
     from src.utils.logger import setup_logging
 
