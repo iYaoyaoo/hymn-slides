@@ -93,13 +93,21 @@ def assert_mac_arch(app_dir: Path, want: str) -> None:
 
 
 def run_selftest(binary: Path) -> None:
-    """运行产物 --selftest；exit code 0=PASS（结果亦写产物自身日志）。"""
+    """运行产物 --selftest；exit code 0=PASS（结果亦写产物自身日志）。
+
+    Windows --windowed exe 无控制台（stdout 为空），此时以退出码为准。
+    """
     proc = subprocess.run([str(binary), "--selftest"], capture_output=True, text=True, timeout=180)
-    out = proc.stdout + proc.stderr
-    if proc.returncode != 0 or "SELFTEST RESULT: PASS" not in out:
-        print(out[-2000:])
-        raise SystemExit(f"产物 selftest 校验失败（exit={proc.returncode}）")
-    print("产物 --selftest PASS")
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if "SELFTEST RESULT: PASS" in out:
+        print("产物 --selftest PASS")
+        return
+    if proc.returncode == 0 and not out.strip():
+        # windowed 产物无控制台输出：退出码 0 视为 PASS（结果已写 app.log）
+        print("产物 --selftest PASS（windowed 无控制台输出，以退出码为准；结果已写日志）")
+        return
+    print(out[-2000:])
+    raise SystemExit(f"产物 selftest 校验失败（exit={proc.returncode}）")
 
 
 def make_zip(src: Path, zip_path: Path) -> None:

@@ -11,6 +11,9 @@ permissions:
 env:
   # 离屏运行 GUI 测试（CI 无显示器）
   QT_QPA_PLATFORM: offscreen
+  # 全程 UTF-8：Windows 控制台默认 cp1252，中文输出会 UnicodeEncodeError
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
 
 jobs:
   # ① Windows x64：pytest → LO 下载提取 → lite+full 构建 → zip → SHA256
