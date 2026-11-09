@@ -24,7 +24,7 @@
 | P4 | 完成 | 2026-11-09 |
 | P5 | 完成 | 2026-11-09 |
 | P6 | 完成 | 2026-11-09 |
-| P7 | 未开始 | - |
+| P7 | 完成 | 2026-11-09 |
 | P8 | 未开始 | - |
 
 ## P0 验收记录（2026-11-09）
@@ -89,3 +89,14 @@
 - pytest：`81 passed in 55.26s`（新增 6 测试）
 - 决策记录：setScreen 加 QScreen isinstance 守卫（替身屏测试下仅按几何定位，不假设身份）
 - 留人工：双屏联动真机验收（iPad Sidecar 第二屏放映、主屏演示者窗、翻页同步、Esc 结束、拔 Sidecar 自动结束+提示）——并入 P8 真机验收清单
+
+## P7 验收记录（2026-11-09）
+
+- tools/bundle_lo.py：来源常量三分已固化（LO_VERSION=26.8.2）：Windows x64 msi（SHA256 ff4b9114…5307a）、mac aarch64 dmg（9f24fe83…49b55）、mac x86_64 dmg（0af06277…41a7a，本机已有）；hdiutil 挂载提取 LibreOffice.app ✓（Intel 与 arm64 dmg 均实测提取成功，arm64 soffice 经 lipo 验证为 arm64）；Windows msi 走 msiexec /a 管理安装提取（CI 端执行）；--download 自动下载+SHA256 校验 ✓
+- tools/build.py：PyInstaller --onedir --windowed；--variant full|lite；--arch arm64|x86_64；lipo 架构断言三重（主程序 HymnSlides + PySide6 QtCore.abi3.so + pypdfium2 libpdfium.dylib），断言失败=构建失败 ✓；full 将 libreoffice/ 复制进 .app/Contents/Resources/ ✓；构建后运行产物 --selftest 校验 PASS ✓；ditto 打包 zip + SHA256 输出 ✓
+- 产物 1：mac-intel-lite.zip（SHA256 56e5174c76ad0ba3175acbaf26dc606d9a4c17461ad59eacdce4a36339dacdb2）——selftest PASS（LO 来源=system）
+- 产物 2：mac-intel-full.zip（SHA256 84c0ff0f126abedbe331d3cbf35d56ce4f9d664c96a8d7ea869b426ec6a2dfa4）——selftest PASS（LO 来源=bundled：<.app>/Contents/Resources/libreoffice/LibreOffice.app/Contents/MacOS/soffice）
+- 真机启动：`open dist/HymnSlides.app` 运行 8 秒无崩溃，日志确认扫描 8 文件 + 捆绑 LO 命中（本地构建无隔离属性，等效右键打开）
+- 回归：pytest `81 passed`
+- 决策记录：full 变体所需 Intel dmg 已在 tools/downloads/（无需 --download 即完成本机构建，符合"无则标注 CI 产出"的更强路径）；msi 与 arm64 dmg 亦提前下载完毕，SHA256 已固化（CI 下载将命中校验）
+- 修复记录：PyInstaller 6.22 的 mac .app 布局中 PySide6 位于 Contents/Frameworks/PySide6/QtCore.abi3.so、pdfium 位于 Contents/Resources/pypdfium2_raw/libpdfium.dylib（非 libQtCore.dylib），断言定位已适配
