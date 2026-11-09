@@ -92,6 +92,13 @@ def assert_mac_arch(app_dir: Path, want: str) -> None:
         print(f"架构断言通过（{want}）：{label} → {p.name}")
 
 
+def _dump_crash_log(binary: Path) -> None:
+    crash = binary.parent / "HymnSlides-crash.log"
+    if crash.is_file():
+        print("---- HymnSlides-crash.log ----")
+        print(crash.read_text(encoding="utf-8")[:2000])
+
+
 def run_selftest(binary: Path) -> None:
     """运行产物 --selftest；exit code 0=PASS（结果亦写产物自身日志）。
 
@@ -107,6 +114,7 @@ def run_selftest(binary: Path) -> None:
         print("产物 --selftest PASS（windowed 无控制台输出，以退出码为准；结果已写日志）")
         return
     print(out[-2000:])
+    _dump_crash_log(binary)
     raise SystemExit(f"产物 selftest 校验失败（exit={proc.returncode}）")
 
 

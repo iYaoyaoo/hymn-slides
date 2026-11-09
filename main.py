@@ -113,7 +113,22 @@ def run_gui() -> int:
     return app.exec()
 
 
+def _ensure_stdio() -> None:
+    """frozen windowed（Windows GUI 子系统）下 sys.stdout/stderr 为 None。
+
+    print/日志写入会抛 AttributeError 并触发 PyInstaller 模态错误框（无人点击即挂起）。
+    用 os.devnull 兜底（macOS 从终端启动时 stdout 正常，不受影响）。
+    """
+    import os
+
+    if sys.stdout is None:  # type: ignore[assignment]
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+    if sys.stderr is None:  # type: ignore[assignment]
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+
+
 def main(argv: list[str] | None = None) -> int:
+    _ensure_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -141,4 +156,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        rc = main()
+    except SystemExit:
+        raise
+    except Exception:  # noqa: BLE001（顶层兜底：崩溃写日志后干净退出，避免 bootloader 模态框）
+        try:
+            import traceback
+            from pathlib import Path
+
+            crash = Path(sys.executable).parent / "HymnSlides-crash.log"
+            crash.write_text(traceback.format_exc(), encoding="utf-8")
+        except Exception:  # noqa: BLE001（崩溃日志失败不再抛）
+            pass
+        rc = 1
+    sys.exit(rc)
