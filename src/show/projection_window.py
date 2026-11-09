@@ -51,7 +51,10 @@ class ProjectionWindow(QWidget):
         self._target_screen = screen
         if screen is not None:
             self.setGeometry(screen.geometry())
-            self.setScreen(screen)
+            from PySide6.QtGui import QScreen
+
+            if isinstance(screen, QScreen):
+                self.setScreen(screen)
         self.showFullScreen()
         self.activateWindow()
         self._load_page(self._page)
@@ -71,6 +74,16 @@ class ProjectionWindow(QWidget):
         self._requested_page = page
         self.image_label.setText(f"加载中…（第 {page + 1} 页）")
         self._worker.request_show(self._ppt, page)
+
+    def go_to(self, page: int) -> None:
+        """外部（演示者窗）请求跳页。"""
+        self._load_page(page)
+
+    def next_page(self) -> None:
+        self._load_page(self._page + 1)
+
+    def prev_page(self) -> None:
+        self._load_page(self._page - 1)
 
     def _on_show_ready(self, ppt: str, page: int, png: str) -> None:
         if str(self._ppt) != ppt or page != self._requested_page:

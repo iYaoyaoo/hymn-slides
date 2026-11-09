@@ -53,7 +53,10 @@ class CountdownOverlay(QWidget):
 
         if screen is not None:
             self.setGeometry(screen.geometry())
-            self.setScreen(screen)
+            from PySide6.QtGui import QScreen
+
+            if isinstance(screen, QScreen):
+                self.setScreen(screen)
 
     def begin(self) -> None:
         self._remaining = self._seconds
@@ -99,6 +102,8 @@ class ShowController(QObject):
         self._config = config
         self._state = ShowState.IDLE
         self._projection: ProjectionWindow | None = None
+        self._presenter = None
+        self._presenter_screen = None
         self._overlay: CountdownOverlay | None = None
         self._screen_removed_watch = None
 
@@ -132,6 +137,8 @@ class ShowController(QObject):
 
         self._ppt = Path(ppt)
         self._show_screen = show_screen
+        if len(screens) >= 2 and dual_allowed:
+            _, self._presenter_screen = decide_dual_layout(screens)
         self.request_show_for.emit(str(self._ppt))
 
         single = len(screens) < 2
@@ -151,10 +158,33 @@ class ShowController(QObject):
         self._overlay = None
         self._projection = ProjectionWindow(self._worker, self._ppt)
         self._projection.show_ended.connect(self._on_ended)
-        self._projection.page_changed.connect(lambda _p: None)
+
+        # 双屏：演示者窗置于主显示器，与放映窗翻页同步（F6）
+        if self._presenter_screen is not None and self._presenter_screen.screen is not None:
+            from src.show.presenter_window import PresenterWindow
+
+            self._presenter = PresenterWindow(self._worker, self._ppt)
+            self._presenter.next_requested.connect(self._on_presenter_next)
+            self._presenter.prev_requested.connect(self._on_presenter_prev)
+            self._presenter.end_requested.connect(self._on_presenter_end)
+            self._projection.page_changed.connect(self._presenter.on_page_changed)
+            self._presenter.show_on_screen(self._presenter_screen.screen)
+
         self._watch_screen_removal()
         self._projection.show_on_screen(self._show_screen.screen)
         self._set_state(ShowState.SHOWING)
+
+    def _on_presenter_next(self) -> None:
+        if self._projection is not None:
+            self._projection.next_page()
+
+    def _on_presenter_prev(self) -> None:
+        if self._projection is not None:
+            self._projection.prev_page()
+
+    def _on_presenter_end(self) -> None:
+        if self._projection is not None:
+            self._projection.end_show()
 
     def _on_cancelled(self) -> None:
         self._overlay = None
@@ -163,6 +193,9 @@ class ShowController(QObject):
 
     def _on_ended(self) -> None:
         self._set_state(ShowState.ENDED)
+        if self._presenter is not None:
+            self._presenter.close()
+            self._presenter = None
         self._cleanup()
 
     def _cleanup(self) -> None:

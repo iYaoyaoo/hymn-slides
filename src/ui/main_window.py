@@ -260,7 +260,7 @@ class MainWindow(QMainWindow):
         from src.show.display_manager import enumerate_screens
 
         screens = enumerate_screens()
-        self.show_controller.start(Path(p), screens, dual_allowed=False)
+        self.show_controller.start(Path(p), screens, dual_allowed=True)
 
     def _on_show_state_changed(self, state: str) -> None:
         if state == "showing":

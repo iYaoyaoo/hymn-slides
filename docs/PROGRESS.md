@@ -23,7 +23,7 @@
 | P3 | 完成 | 2026-11-09 |
 | P4 | 完成 | 2026-11-09 |
 | P5 | 完成 | 2026-11-09 |
-| P6 | 未开始 | - |
+| P6 | 完成 | 2026-11-09 |
 | P7 | 未开始 | - |
 | P8 | 未开始 | - |
 
@@ -80,3 +80,12 @@
 - `python3 main.py --list-screens` → `检测到 2 块显示器：屏幕 1: Built-in Retina Display 1680x1050 @(0,0)（主显示器）；屏幕 2: 随航显示器 1325x892 @(1680,158)` exit=0（Sidecar 扩展屏正确识别）✓
 - 修复记录：--list-screens 需先于日志初始化创建 QApplication（QCoreApplication 单例不可升级）；P0 旧"未实现"CLI 断言改为全实现断言
 - 留人工：真实屏幕上的倒计时放映观感、Esc 结束、断开 Sidecar 后的拔屏提示（P6 双屏联测时一并人工验证；本机 2 屏常驻，单屏路径需拔 Sidecar 后测试）
+
+## P6 验收记录（2026-11-09）
+
+- 模块：presenter_window.py（当前/下一页 256px 缩略、进度 x/y、elapsed 计时器 mm:ss、文件名、快捷键提示、上一页/下一页/结束按钮 + 键盘）；show_controller.py 扩展双屏编排（≥2 屏且 dual_allowed → decide_dual_layout：放映窗=非主屏，演示者窗=主屏；翻页同步 projection.page_changed→presenter.on_page_changed；presenter next/prev/end → projection.next_page/prev_page/end_show；结束后关两窗）
+- MainWindow.start_show 改为 dual_allowed=True（≥2 屏走双屏路径）
+- 状态机单元测试：idle→showing→ended（双屏全流程含翻页同步/演示者导航请求）、单屏 COUNTDOWN→SHOWING→ENDED、关闭确认跳过倒计时、双屏无重复窗口
+- pytest：`81 passed in 55.26s`（新增 6 测试）
+- 决策记录：setScreen 加 QScreen isinstance 守卫（替身屏测试下仅按几何定位，不假设身份）
+- 留人工：双屏联动真机验收（iPad Sidecar 第二屏放映、主屏演示者窗、翻页同步、Esc 结束、拔 Sidecar 自动结束+提示）——并入 P8 真机验收清单
