@@ -20,7 +20,7 @@
 | P0 | 完成 | 2026-11-09 |
 | P1 | 完成 | 2026-11-09 |
 | P2 | 完成 | 2026-11-09 |
-| P3 | 未开始 | - |
+| P3 | 完成 | 2026-11-09 |
 | P4 | 未开始 | - |
 | P5 | 未开始 | - |
 | P6 | 未开始 | - |
@@ -52,3 +52,12 @@
 - pytest：`41 passed in 16.63s`
 - `python3 main.py --render-test samples` → 3/3 成功：诗歌敬拜.pps 2页 PDF 32KB｜缩略图 5KB｜放映页 41KB；诗歌敬拜.pptx 2页；诗歌合集.pptx 52页 PDF 112KB｜放映页 65KB（exit=0）
 - 修复记录：pypdfium2 页码越界抛 PdfiumError（非 IndexError），测试按实际异常断言
+
+## P3 验收记录（2026-11-09）
+
+- 模块：main_window.py（工具栏/导航历史/状态栏/worker 接线）、finder_view.py（图标/列表双视图、面包屑、转换失败角标）、sidebar.py（QFileSystemModel 目录树，隐藏目录过滤）、settings_dialog.py（主目录/soffice/缓存上限/单屏确认）、workers.py（ScanWorker/ThumbWorker 后台线程，规范结构未列此文件，记录决策）
+- pytest：`51 passed in 29.63s`（离屏 GUI 测试 + 导航历史 + 状态栏统计 + 设置写入 + 扫描线程）
+- GUI 实测：主目录指向 samples 启动，10 秒无崩溃；日志确认扫描 8 文件、soffice 探测命中、缩略图缓存生成 8 张 PNG / 5 份 PDF；无 ERROR（3 条 ERROR 为 pytest 错误路径用例）
+- 启动时 LO 缺失弹窗引导安装（离屏环境仅记日志不弹模态框，防 CI 卡死）
+- 修复记录：① QFileSystemModel 位于 QtWidgets 而非 QtCore；② QDir.entryInfoList 用 setSorting 而非位置参数；③ **conftest 必须在任何测试前创建 QApplication**——否则 paths._ensure_core_app 先建 QCoreApplication 单例，后续无法升级（qFatal abort）
+- 留人工：目录树点击、图标/列表切换、设置对话框交互、转换失败角标显示（GUI 操作项）
