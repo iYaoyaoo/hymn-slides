@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pptx import Presentation
 from pptx.util import Inches, Pt
 
+from src.render.converter import profile_dir
 from src.render.lo_detect import detect_soffice
-from src.utils import paths
 from src.utils.logger import setup_logging
 
 SAMPLES = [
@@ -89,7 +89,7 @@ def convert_format(soffice: Path, src: Path, out_dir: Path, fmt: str) -> bool:
         "--headless",
         "--norestore",
         "--nolockcheck",
-        f"-env:UserInstallation={paths.lo_profile_dir().as_uri()}",
+        f"-env:UserInstallation={profile_dir().as_uri()}",
         "--convert-to",
         fmt,
         "--outdir",

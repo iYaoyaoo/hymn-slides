@@ -42,8 +42,9 @@ class Indexer:
             db_path = paths.cache_dir() / "index.db"
         db_path = Path(db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
+        # timeout 30s：容忍并发进程（如用户正运行 app）短暂持有写锁
         self.db_path = db_path
-        self._conn = sqlite3.connect(db_path)
+        self._conn = sqlite3.connect(db_path, timeout=30)
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
@@ -133,6 +134,7 @@ class Indexer:
 
     def set_page_count(self, file_id: int, page_count: int) -> None:
         self._conn.execute("UPDATE files SET page_count=? WHERE id=?", (page_count, file_id))
+        self._conn.commit()  # 立即提交，避免在两次转换间长期持有写锁
 
     def upsert_slide_texts(self, file_id: int, texts: list[tuple[int, str]]) -> None:
         """texts: [(页码(1起), 该页文字), ...]；先清空旧记录再写入。"""

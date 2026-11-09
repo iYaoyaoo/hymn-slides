@@ -1,6 +1,9 @@
 """PPT→PDF 转换：LibreOffice 无头，独立 profile，超时 120s，失败重试 1 次（规范 §3-8、P2）。"""
 from __future__ import annotations
 
+import atexit
+import os
+import shutil
 import subprocess
 import threading
 import time
@@ -16,6 +19,32 @@ TIMEOUT_SECONDS = 120
 
 # soffice 同一 UserInstallation 不允许并发实例：进程内串行化转换调用
 _CONVERT_LOCK = threading.Lock()
+
+_PROFILE_READY = False
+_STALE_SECONDS = 24 * 3600
+
+
+def profile_dir() -> Path:
+    """soffice 独立临时 profile（规范 §3-8）：数据目录 lo_profile/ 下每进程子目录。
+
+    多进程并跑（如用户双开）时同一 profile 会互相顶掉；p{pid} 子目录隔离。
+    退出时删除自身目录；启动时清理超 24h 的遗留目录（崩溃残留）。
+    """
+    global _PROFILE_READY
+    base = paths.lo_profile_dir()
+    mine = base / f"p{os.getpid()}"
+    if not _PROFILE_READY:
+        _PROFILE_READY = True
+        now = time.time()
+        for d in base.glob("p*"):
+            try:
+                if d != mine and (now - d.stat().st_mtime) > _STALE_SECONDS:
+                    shutil.rmtree(d, ignore_errors=True)
+            except OSError:
+                pass
+        atexit.register(lambda: shutil.rmtree(mine, ignore_errors=True))
+    mine.mkdir(parents=True, exist_ok=True)
+    return mine
 
 
 @dataclass
@@ -44,7 +73,7 @@ def convert_to_pdf(
     if expected_pdf.is_file() and expected_pdf.stat().st_size > 0:
         return ConvertResult(ok=True, pdf_path=expected_pdf, elapsed=0.0)
 
-    profile = paths.lo_profile_dir()
+    profile = profile_dir()
     cmd = [
         str(soffice),
         "--headless",
