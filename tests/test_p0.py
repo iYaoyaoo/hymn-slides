@@ -106,7 +106,13 @@ def test_selftest_report_structure():
 
 
 def test_selftest_passes_on_this_machine():
-    """本机已装 LibreOffice，selftest 应 PASS（CI 无 LO 环境可能 FAIL，故此测试仅在本机有意义）。"""
+    """已装 LibreOffice 的机器上 selftest 应 PASS（CI 无 LO 环境自动跳过）。"""
+    from src.render.lo_detect import detect_soffice
+
+    if not detect_soffice().found:
+        import pytest
+
+        pytest.skip("本机未安装 LibreOffice")
     ok, _ = run_selftest()
     assert ok is True
 
