@@ -111,3 +111,4 @@
   ② SQLite `database is locked`——发现 `set_page_count` 未提交，导致 app 在转换间隙长期持有写锁（真实小 bug）。修复：set_page_count 立即 commit + 连接 timeout 5s→30s。修复后全量 82 passed（用户运行中的是旧版进程，竞态属预期，新版消除）。
 - 干跑 5（cc5c262，含全部修复）进行中；干跑 4（b42f7f7，仅 stdio 修复）结果将被其取代。
 - python.org universal2 固定为 3.12.10（python.org 最新 3.12.x macOS pkg；3.12.16 无 macos pkg，记录决策）。
+- 干跑 4/5（b42f7f7/cc5c262）：windows 仍在"构建 full"失败，但崩溃日志（新增诊断机制）给出真相——不再挂起、bundled LO 命中、selftest 逻辑 PASS，最终死于 `print(report)` 的 UnicodeEncodeError：PyInstaller windowed 模拟流在重定向下非 None 而是真实管道流，编码=Windows ANSI 代码页（cp1252；stderr errors=replace 宽松、stdout strict），中文字符即崩。**决定性修复**：`_ensure_stdio()` 统一 `reconfigure(encoding="utf-8", errors="replace")`——该修复同时是真实中文 Windows（GBK）用户的必要修复。干跑 6（e14e9cd）验证中。
