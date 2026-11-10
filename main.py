@@ -50,7 +50,7 @@ def cmd_scan(target: str | None) -> int:
 
 
 def cmd_render_test(target: str | None) -> int:
-    """转换素材为 PDF 并渲染页面出图（P2 验收：双级缓存 256px / 1920px）。"""
+    """转换素材为 PDF 并渲染放映页出图（验收 LO 管线：PDF 中间产物 + 1920px 放映页）。"""
     from pathlib import Path
 
     from src.core.config import Config
@@ -70,12 +70,11 @@ def cmd_render_test(target: str | None) -> int:
         try:
             pdf = cache.pdf_for(sf.path)
             n = cache.page_count(sf.path)
-            t0 = cache.thumb(sf.path, 0)
-            t1 = cache.thumb(sf.path, min(1, n - 1)) if n > 1 else None
-            show = cache.show_page(sf.path, 0)
+            show0 = cache.show_page(sf.path, 0)
+            show1 = cache.show_page(sf.path, min(1, n - 1)) if n > 1 else None
             print(f"  {sf.name}: {n} 页 | PDF {pdf.stat().st_size // 1024}KB")
-            print(f"    缩略图256px: {t0.stat().st_size // 1024}KB, {t1.stat().st_size // 1024}KB")
-            print(f"    放映页1920px: {show.stat().st_size // 1024}KB")
+            print(f"    放映页1920px: {show0.stat().st_size // 1024}KB"
+                  + (f", {show1.stat().st_size // 1024}KB" if show1 else ""))
         except Exception as e:  # noqa: BLE001（单文件失败记日志继续，不崩溃）
             failures += 1
             print(f"  {sf.name}: 失败（{e}）")

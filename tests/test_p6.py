@@ -23,22 +23,17 @@ class FakePageWorker:
 
         class _Sig(QObject):
             count_ready = Signal(str, int)
-            page_ready = Signal(str, int, str)
             show_ready = Signal(str, int, str)
             page_failed = Signal(str, int)
 
         self._obj = _Sig()
         self.count_ready = self._obj.count_ready
-        self.page_ready = self._obj.page_ready
         self.show_ready = self._obj.show_ready
         self.page_failed = self._obj.page_failed
         self.requests: list[tuple] = []
 
     def request_count(self, ppt):
         self.requests.append(("count", str(ppt)))
-
-    def request_page(self, ppt, page):
-        self.requests.append(("page", str(ppt), page))
 
     def request_show(self, ppt, page):
         self.requests.append(("show", str(ppt), page))
@@ -109,13 +104,6 @@ def _native_chain(engine):
         ]
     )
     return EngineChain([engine], cands)
-
-
-def _mk_pil_png(path: Path):
-    from PIL import Image
-
-    Image.new("RGB", (16, 12), "blue").save(path)
-    return str(path)
 
 
 # ---------- 原生引擎双屏全流程 ----------
@@ -222,7 +210,7 @@ def test_native_screen_unplugged_ends_show(qapp, tmp_path, monkeypatch):
         controller.end()
 
 
-# ---------- 演示者窗行为（保留） ----------
+# ---------- 演示者窗行为（v4.2 纯文字视图） ----------
 
 def test_presenter_contents_and_sync(qapp, tmp_path):
     from src.show.presenter_window import PresenterWindow
@@ -231,26 +219,18 @@ def test_presenter_contents_and_sync(qapp, tmp_path):
     ppt = tmp_path / "你真伟大.pps"
     pres = PresenterWindow(worker, ppt)
     assert "你真伟大.pps" in pres.file_label.text()
+    # v4.2 取消预览：无缩略图标签，仅请求页数（不出图）
+    assert not hasattr(pres, "current_label") and not hasattr(pres, "next_label")
+    assert ("count", str(ppt)) in worker.requests
 
     worker.count_ready.emit(str(ppt), 52)
     assert pres._total == 52
 
     pres.on_page_changed(0)
     assert pres.progress_label.text() == "1 / 52"
-    assert ("page", str(ppt), 0) in worker.requests
-    assert ("page", str(ppt), 1) in worker.requests
 
-    worker.requests.clear()
     pres.on_page_changed(51)
-    assert ("page", str(ppt), 52) not in worker.requests
-
-    pres.on_page_changed(0)
-    png = _mk_pil_png(tmp_path / "p0.png")
-    worker.page_ready.emit(str(ppt), 0, png)
-    assert not pres.current_label.pixmap().isNull()
-    png2 = _mk_pil_png(tmp_path / "p1.png")
-    worker.page_ready.emit(str(ppt), 1, png2)
-    assert not pres.next_label.pixmap().isNull()
+    assert pres.progress_label.text() == "52 / 52"
 
     assert len(pres.timer_label.text()) == 5 and ":" in pres.timer_label.text()
     tail_widget = pres.layout().itemAt(pres.layout().count() - 1).widget()

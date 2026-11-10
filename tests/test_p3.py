@@ -1,6 +1,7 @@
 """R2 验收测试（v4 UI）：诗歌树构建/过滤/定位 + 主窗口装配 + 扫描线程。"""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -238,6 +239,7 @@ def test_scan_worker_fulltext_parallel_and_resilient(qapp, tmp_path, monkeypatch
     class _StubCache:
         def slide_texts(self, ppt: Path):
             used_threads.add(threading.get_ident())
+            time.sleep(0.05)  # 稍作阻塞，确保 3 个任务确定性分布到多个工作线程
             if ppt.name == "b.pptx":
                 raise RuntimeError("模拟单文件转换失败")
             return [(1, f"{ppt.stem} 的歌词")]

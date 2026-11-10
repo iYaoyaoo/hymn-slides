@@ -47,6 +47,15 @@
 - **v4 CI 干跑**：run 42756045267（281b2aa）进行中。
 - 人工复核清单（真机，开发机无法自动化）：Windows PowerPoint/WPS COM 放映与定位、mac PowerPoint AppleScript 放映语法、双屏/单屏真实观感。
 
+## v4.2 修复+变更（2026-11-10，用户真机闪退报告 + 指令"完全取消预览功能"）
+
+- **闪退根因（崩溃报告分析）**：Thread 14 SIGSEGV 于 `libpdfium.dylib FPDF_LoadPage → CPDF_ColorSpace::CreateBufAndSetDefaultColor`——pdfium 内部状态**非线程安全**，v4.1 的 3 路并行全文提取（及 PageRenderWorker 缩略渲染）并发调用 pdfium 触发竞态段错误。
+- **修复①（闪退）**：pdfrender.py 全部 pdfium 入口（page_count/render_page/extract_texts）经模块级 RLock 全局串行；soffice 转换（秒级大头）仍 3 路并行，回填速度不受影响。新增 4 线程并发提取测试。
+- **变更②（取消预览，用户指令）**：演示者窗改纯文字视图（进度 x/y 大号主视觉、计时器、文件名、快捷键、按钮），移除当前/下一页缩略图；PageRenderWorker 删除 256px 通道（page_ready/request_page）；RenderCache 删除 thumb()/img256 管线；--render-test 改验 1920px 放映页。LO 投影窗 1920px 放映页保留（放映本体，非预览）。规范 F4 已同步。
+- **附带清理**：删除 v3 遗留 dist_staging/（1.5G 捆绑 LO 解包，污染 pytest 收集），.gitignore 增补。
+- **附带修复**：test_p3 并行断言竞态（瞬时替身任务可能被单工作线程吞掉，加 50ms 阻塞确定性触发多线程）。
+- 验收：pytest `79 passed`；`--selftest` PASS；`--render-test samples` 3/3（放映页 1920px 出图）。
+
 ## v4.1 修复（2026-11-10，用户真机反馈：2872 文件首扫树空白+卡顿）
 
 - **根因 1（致命，树空白）**：ScanWorker 把"元数据扫描"与"全文提取"串在一个 done 信号里——2872 文件的全文转换需数小时，期间树永远空白。

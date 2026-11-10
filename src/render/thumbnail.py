@@ -1,11 +1,11 @@
-"""缓存管理（v4）：页面图片缓存 + 引擎链路由 + 缓存上限淘汰。
+"""缓存管理（v4.2）：放映页图片缓存 + 引擎链路由 + 缓存上限淘汰。
 
 目录布局（cache_root 默认 QStandardPaths CacheLocation / 便携模式 data/cache）：
   cache/pdf/<key>/<stem>.pdf     （仅 LibreOffice 路径的中间产物）
-  cache/img256/<key>/pNNN.png    （缩略图）
-  cache/img1920/<key>/pNNN.png   （放映页）
+  cache/img1920/<key>/pNNN.png   （放映页，LO 投影窗路径用）
 key = sha1(绝对路径 + mtime)[:16]（文件变化 → key 变化 → 旧缓存自然失效）
 
+v4.2 取消预览：256px 缩略图管线（img256/thumb）已移除，演示者窗为纯文字视图。
 页面图片由引擎链生成：PowerPoint/WPS 直接导出 PNG；LibreOffice 走 PDF→pypdfium2。
 """
 from __future__ import annotations
@@ -37,7 +37,6 @@ class RenderCache:
     def __init__(self, root: Path | None = None, chain: EngineChain | None = None):
         self.root = Path(root) if root is not None else paths.cache_dir()
         self.pdf_dir = self.root / "pdf"
-        self.img256_dir = self.root / "img256"
         self.img1920_dir = self.root / "img1920"
         self.chain = chain if chain is not None else EngineChain.autodetect()
 
@@ -93,10 +92,6 @@ class RenderCache:
         logger.debug("页面图片：%s 第 %d 页 @%dpx → %s（引擎=%s）", ppt_path.name, page_index + 1, width_px, out, eng.name)
         return out
 
-    def thumb(self, ppt_path: Path, page_index: int) -> Path:
-        """缩略图（256px）。"""
-        return self._page_png(ppt_path, page_index, pdfrender.THUMB_WIDTH_PX, self.img256_dir)
-
     def show_page(self, ppt_path: Path, page_index: int) -> Path:
         """放映页（1920px，按需生成并缓存）。"""
         return self._page_png(ppt_path, page_index, pdfrender.SHOW_WIDTH_PX, self.img1920_dir)
@@ -135,7 +130,7 @@ class RenderCache:
         """超过上限时删除最旧缓存文件，返回释放的字节数。"""
         limit_bytes = limit_mb * 1024 * 1024
         files: list[tuple[float, int, Path]] = []
-        for base in (self.pdf_dir, self.img256_dir, self.img1920_dir):
+        for base in (self.pdf_dir, self.img1920_dir):
             if not base.is_dir():
                 continue
             for p in base.rglob("*"):
@@ -165,14 +160,14 @@ class RenderCache:
     def purge_file_cache(self, ppt_path: Path) -> None:
         """删除某文件的全部缓存（文件更新后调用）。"""
         key = _file_key(ppt_path)
-        for base in (self.pdf_dir, self.img256_dir, self.img1920_dir):
+        for base in (self.pdf_dir, self.img1920_dir):
             d = base / key
             if d.is_dir():
                 shutil.rmtree(d, ignore_errors=True)
 
     def total_size_bytes(self) -> int:
         total = 0
-        for base in (self.pdf_dir, self.img256_dir, self.img1920_dir):
+        for base in (self.pdf_dir, self.img1920_dir):
             if base.is_dir():
                 total += sum(p.stat().st_size for p in base.rglob("*") if p.is_file())
         return total

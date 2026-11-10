@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
 
-        # 后台线程：渲染页（演示者窗/放映窗用）与扫描
+        # 后台线程：放映页渲染（LO 投影窗用）与扫描
         self.page_worker = PageRenderWorker(parent=self)
         self.page_worker.start()
 

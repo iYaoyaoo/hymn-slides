@@ -36,7 +36,7 @@ def test_extract_texts_chinese():
 
 
 def test_render_page_dimensions():
-    img = pdfrender.render_page(FIXTURE_PDF, 0, pdfrender.THUMB_WIDTH_PX)
+    img = pdfrender.render_page(FIXTURE_PDF, 0, 256)
     assert img.width == 256
     assert img.height > 0
     show = pdfrender.render_page(FIXTURE_PDF, 1, pdfrender.SHOW_WIDTH_PX)
@@ -120,16 +120,11 @@ def test_cache_thumb_and_show(tmp_path, monkeypatch):
     assert pdf.is_file()
     assert cache.page_count(pptx) == 1
 
-    t0 = cache.thumb(pptx, 0)
     s0 = cache.show_page(pptx, 0)
-    assert t0.is_file() and t0.stat().st_size > 0
     assert s0.is_file() and s0.stat().st_size > 0
-    # key 布局：256 与 1920 分目录
-    assert t0.parent != s0.parent
 
     # 二次调用命中缓存（文件数不增）
     n_before = len(list((tmp_path / "cache").rglob("*.png")))
-    cache.thumb(pptx, 0)
     cache.show_page(pptx, 0)
     n_after = len(list((tmp_path / "cache").rglob("*.png")))
     assert n_before == n_after
@@ -137,6 +132,30 @@ def test_cache_thumb_and_show(tmp_path, monkeypatch):
     # 页码越界 → RenderError
     with pytest.raises(RenderError):
         cache.show_page(pptx, 5)
+
+
+def test_extract_texts_thread_safe_concurrent():
+    """v4.2 闪退修复：pdfium 全局锁——多线程并发提取/计数不出段错误且结果一致。"""
+    import threading
+
+    results: list = []
+    errors: list = []
+
+    def work():
+        try:
+            for _ in range(5):
+                results.append(len(pdfrender.extract_texts(FIXTURE_PDF)))
+                results.append(pdfrender.page_count(FIXTURE_PDF))
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=work) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert not errors
+    assert results and all(r == 2 for r in results)
 
 
 def test_cache_texts(tmp_path, monkeypatch):
@@ -156,13 +175,13 @@ def test_cache_texts(tmp_path, monkeypatch):
 def test_cache_limit_eviction(tmp_path):
     """缓存上限淘汰：最旧优先删除。"""
     cache = RenderCache(root=tmp_path / "cache")
-    for base in (cache.pdf_dir, cache.img256_dir, cache.img1920_dir):
+    for base in (cache.pdf_dir, cache.img1920_dir):
         base.mkdir(parents=True, exist_ok=True)
     # 造 3 个文件：旧文件最大，新文件最小
-    old = cache.img256_dir / "old.png"
+    old = cache.img1920_dir / "old.png"
     old.write_bytes(b"x" * 100)
     os.utime(old, (1000.0, 1000.0))
-    mid = cache.img256_dir / "mid.png"
+    mid = cache.img1920_dir / "mid.png"
     mid.write_bytes(b"x" * 50)
     os.utime(mid, (2000.0, 2000.0))
     new = cache.pdf_dir / "new.pdf"
@@ -177,8 +196,8 @@ def test_cache_limit_eviction(tmp_path):
 
 def test_cache_limit_noop_under_limit(tmp_path):
     cache = RenderCache(root=tmp_path / "cache")
-    cache.img256_dir.mkdir(parents=True, exist_ok=True)
-    f = cache.img256_dir / "f.png"
+    cache.img1920_dir.mkdir(parents=True, exist_ok=True)
+    f = cache.img1920_dir / "f.png"
     f.write_bytes(b"x" * 100)
     assert cache.enforce_limit(limit_mb=1) == 0
     assert f.exists()
@@ -186,7 +205,7 @@ def test_cache_limit_noop_under_limit(tmp_path):
 
 def test_purge_file_cache(tmp_path):
     cache = RenderCache(root=tmp_path / "cache")
-    key_dir = cache.img256_dir / "abc123"
+    key_dir = cache.img1920_dir / "abc123"
     key_dir.mkdir(parents=True, exist_ok=True)
     (key_dir / "p0001.png").write_bytes(b"x")
     # purge 依赖 mtime 计算的 key，直接验证目录删除逻辑（用 monkeypatch 固定 key）

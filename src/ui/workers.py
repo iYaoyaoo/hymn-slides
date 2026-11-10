@@ -113,10 +113,13 @@ class ScanWorker(QThread):
 
 
 class PageRenderWorker(QThread):
-    """按需渲染：页数探测 / 256px 页缩略 / 1920px 放映页。主线程以队列投递。"""
+    """按需渲染：页数探测 / 1920px 放映页（LO 投影窗路径）。主线程以队列投递。
+
+    v4.2 取消预览：256px 缩略图通道（page_ready/request_page）已移除，
+    演示者窗为纯文字视图。
+    """
 
     count_ready = Signal(str, int)  # (ppt, 页数)
-    page_ready = Signal(str, int, str)  # (ppt, 页码, png)
     show_ready = Signal(str, int, str)  # (ppt, 页码, png)
     page_failed = Signal(str, int)  # (ppt, 页码)
 
@@ -129,9 +132,6 @@ class PageRenderWorker(QThread):
 
     def request_count(self, ppt_path: Path) -> None:
         self._queue.put(("count", Path(ppt_path)))
-
-    def request_page(self, ppt_path: Path, page: int) -> None:
-        self._queue.put(("page", Path(ppt_path), page))
 
     def request_show(self, ppt_path: Path, page: int) -> None:
         self._queue.put(("show", Path(ppt_path), page))
@@ -151,9 +151,6 @@ class PageRenderWorker(QThread):
             try:
                 if kind == "count":
                     self.count_ready.emit(str(ppt), self._cache.page_count(ppt))
-                elif kind == "page":
-                    png = self._cache.thumb(ppt, req[2])
-                    self.page_ready.emit(str(ppt), req[2], str(png))
                 elif kind == "show":
                     png = self._cache.show_page(ppt, req[2])
                     self.show_ready.emit(str(ppt), req[2], str(png))
