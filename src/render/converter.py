@@ -17,22 +17,19 @@ logger = get_logger("converter")
 
 TIMEOUT_SECONDS = 120
 
-# soffice 同一 UserInstallation 不允许并发实例：进程内串行化转换调用
-_CONVERT_LOCK = threading.Lock()
-
 _PROFILE_READY = False
 _STALE_SECONDS = 24 * 3600
 
 
 def profile_dir() -> Path:
-    """soffice 独立临时 profile（规范 §3-8）：数据目录 lo_profile/ 下每进程子目录。
+    """soffice 独立临时 profile（规范 §3-8）：数据目录 lo_profile/ 下每线程子目录。
 
-    多进程并跑（如用户双开）时同一 profile 会互相顶掉；p{pid} 子目录隔离。
-    退出时删除自身目录；启动时清理超 24h 的遗留目录（崩溃残留）。
+    v4.1：不同线程各自独立 profile → 支持多路并行无头转换（互不顶掉）；
+    不同进程（用户双开）亦天然隔离。退出时删除自身目录；清理超 24h 遗留目录。
     """
     global _PROFILE_READY
     base = paths.lo_profile_dir()
-    mine = base / f"p{os.getpid()}"
+    mine = base / f"p{os.getpid()}_{threading.get_ident()}"
     if not _PROFILE_READY:
         _PROFILE_READY = True
         now = time.time()
@@ -89,30 +86,30 @@ def convert_to_pdf(
 
     start = time.time()
     last_error = ""
-    with _CONVERT_LOCK:
-        for attempt in (1, 2):
-            try:
-                proc = subprocess.run(  # noqa: S603（参数列表调用，无 shell）
-                    cmd,
-                    capture_output=True,
-                    timeout=timeout,
-                    check=False,
-                )
-                if proc.returncode == 0 and expected_pdf.is_file() and expected_pdf.stat().st_size > 0:
-                    elapsed = time.time() - start
-                    logger.info("转换成功（第 %d 次）：%s → %s，耗时 %.1fs", attempt, ppt_path.name, expected_pdf, elapsed)
-                    return ConvertResult(ok=True, pdf_path=expected_pdf, elapsed=elapsed)
-                last_error = f"returncode={proc.returncode} stderr={proc.stderr.decode('utf-8', 'replace')[:300]}"
-                logger.warning(
-                    "转换失败（第 %d 次）：%s，%s", attempt, ppt_path.name, last_error
-                )
-            except subprocess.TimeoutExpired:
-                last_error = f"超时（>{timeout}s）"
-                logger.warning("转换超时（第 %d 次）：%s", attempt, ppt_path.name)
-            except OSError as e:
-                last_error = str(e)
-                logger.error("转换异常：%s，%s", ppt_path.name, e)
-                break  # 环境级错误（soffice 不可执行等）不重试
+    # v4.1：每线程独立 profile，天然支持并行转换（不再全局串行锁）
+    for attempt in (1, 2):
+        try:
+            proc = subprocess.run(  # noqa: S603（参数列表调用，无 shell）
+                cmd,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+            if proc.returncode == 0 and expected_pdf.is_file() and expected_pdf.stat().st_size > 0:
+                elapsed = time.time() - start
+                logger.info("转换成功（第 %d 次）：%s → %s，耗时 %.1fs", attempt, ppt_path.name, expected_pdf, elapsed)
+                return ConvertResult(ok=True, pdf_path=expected_pdf, elapsed=elapsed)
+            last_error = f"returncode={proc.returncode} stderr={proc.stderr.decode('utf-8', 'replace')[:300]}"
+            logger.warning(
+                "转换失败（第 %d 次）：%s，%s", attempt, ppt_path.name, last_error
+            )
+        except subprocess.TimeoutExpired:
+            last_error = f"超时（>{timeout}s）"
+            logger.warning("转换超时（第 %d 次）：%s", attempt, ppt_path.name)
+        except OSError as e:
+            last_error = str(e)
+            logger.error("转换异常：%s，%s", ppt_path.name, e)
+            break  # 环境级错误（soffice 不可执行等）不重试
 
     logger.error("转换最终失败：%s，%s", ppt_path.name, last_error)
     return ConvertResult(ok=False, error=last_error, elapsed=time.time() - start)

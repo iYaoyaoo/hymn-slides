@@ -179,7 +179,7 @@ class RenderCache:
 
 
 def refresh_index_fulltext(ppt_path: Path, indexer, cache: RenderCache | None = None) -> int:
-    """提取文字+回填索引（页数+全文），返回页数。UI 扫描线程逐文件调用。"""
+    """提取文字+回填索引（页数+全文），返回页数。单文件工具函数（ScanWorker 内置并行版本）。"""
     cache = cache or RenderCache()
     texts = cache.slide_texts(ppt_path)
     fid = indexer.file_id_by_path(str(ppt_path))

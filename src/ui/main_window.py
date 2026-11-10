@@ -177,13 +177,22 @@ class MainWindow(QMainWindow):
             self.config.main_dir, db_path=self.db_path, fulltext=self._scan_fulltext, parent=self
         )
         self._scan_worker.progress.connect(self._on_scan_progress)
+        self._scan_worker.tree_ready.connect(self._on_tree_ready)
         self._scan_worker.done.connect(self._on_scan_done)
         self._scan_worker.failed.connect(self._on_scan_failed)
         self._scan_worker.start()
 
     def _on_scan_progress(self, done: int, total: int) -> None:
         if total > 0:
-            self.statusBar().showMessage(f"索引中（提取文字）{done}/{total}")
+            self.statusBar().showMessage(f"后台建立全文索引 {done}/{total}（可正常使用）")
+
+    def _on_tree_ready(self, files, stats) -> None:
+        """元数据就绪：树立即可用（全文索引继续在后台并行，v4.1 修复首扫空白/卡顿）。"""
+        self.index_files = files
+        self.tree.load_files(self.config.main_dir, files)
+        if self.search_edit.text().strip():
+            self._do_search()
+        self.statusBar().showMessage(f"已加载 {stats.scanned} 个诗歌文件，正在后台建立全文索引…")
 
     def _on_scan_done(self, files, stats) -> None:
         self.index_files = files

@@ -65,7 +65,10 @@ class Indexer:
     # ---------- 增量同步 ----------
 
     def sync_scan(self, root: Path) -> ScanStats:
-        """扫描 root 并增量同步索引（新增/更新/删除），返回统计。"""
+        """扫描 root 并增量同步索引（新增/更新/删除），返回统计。
+
+        删除仅限本次扫描根下的缺失行——其他根（历史扫描）的行不受影响。
+        """
         start = time.time()
         root = Path(root)
         stats = ScanStats()
@@ -90,7 +93,7 @@ class Indexer:
                     stats.unchanged += 1
 
         for path_str, (fid, _, _) in existing.items():
-            if path_str not in on_disk:
+            if path_str not in on_disk and self._under_root(path_str, root):
                 self._conn.execute("DELETE FROM files WHERE id=?", (fid,))
                 stats.removed += 1
 
@@ -101,6 +104,13 @@ class Indexer:
             stats.scanned, stats.added, stats.updated, stats.unchanged, stats.removed, stats.elapsed,
         )
         return stats
+
+    @staticmethod
+    def _under_root(path_str: str, root: Path) -> bool:
+        try:
+            return Path(path_str).is_relative_to(root)
+        except (ValueError, OSError):
+            return False
 
     def _insert(self, sf: SlideFile) -> int:
         cur = self._conn.execute(
