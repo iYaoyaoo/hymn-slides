@@ -1,4 +1,4 @@
-"""P5 验收测试：显示器决策、--list-screens、放映窗翻页、倒计时确认、拔屏自动结束。"""
+"""R3 验收测试（v4）：显示器决策、--list-screens、投影窗翻页、倒计时确认、状态机。"""
 from __future__ import annotations
 
 import time
@@ -7,6 +7,12 @@ from pathlib import Path
 import pytest
 
 from src.core.config import Config
+from src.render.engine import BaseEngine
+from src.render.engine_detect import (
+    ENGINE_LIBREOFFICE,
+    EngineCandidates,
+    EngineInfo,
+)
 from src.show.display_manager import (
     ScreenInfo,
     decide_dual_layout,
@@ -72,7 +78,7 @@ def test_cli_list_screens(qapp, capsys):
     assert "检测到" in out and "主显示器" in out
 
 
-# ---------- ProjectionWindow ----------
+# ---------- 投影窗（LO 放映路径） ----------
 
 class FakePageWorker:
     def __init__(self):
@@ -112,23 +118,20 @@ def test_projection_navigation_and_esc(qapp, tmp_path):
     proj = ProjectionWindow(worker, tmp_path / "诗歌.pptx")
     worker.count_ready.emit(str(tmp_path / "诗歌.pptx"), 5)
 
-    # 翻页 → 翻页信号 + 请求下一页
     pages: list[int] = []
     proj.page_changed.connect(pages.append)
     proj.keyPressEvent(_key(Qt.Key.Key_Right))
     assert ("show", str(tmp_path / "诗歌.pptx"), 1) in worker.requests
-    proj.keyPressEvent(_key(Qt.Key.Key_Space))  # Space 下一页
+    proj.keyPressEvent(_key(Qt.Key.Key_Space))
     proj.keyPressEvent(_key(Qt.Key.Key_PageUp))
     proj.keyPressEvent(_key(Qt.Key.Key_Left))
 
-    # 越界保护：第 0 页不向前翻
     worker.requests.clear()
     proj._page = 0
     proj._requested_page = -1
     proj.keyPressEvent(_key(Qt.Key.Key_Left))
     assert not any(r[0] == "show" for r in worker.requests)
 
-    # Esc → 结束信号
     ended: list[bool] = []
     proj.show_ended.connect(lambda: ended.append(True))
     proj.keyPressEvent(_key(Qt.Key.Key_Escape))
@@ -144,7 +147,7 @@ def test_countdown_finishes(qapp):
 
     screens = enumerate_screens()
     overlay = CountdownOverlay(screens[0].screen)
-    overlay._timer.setInterval(20)  # 测试加速
+    overlay._timer.setInterval(20)
     done: list[bool] = []
     overlay.countdown_finished.connect(lambda: done.append(True))
     overlay.begin()
@@ -156,8 +159,8 @@ def test_countdown_finishes(qapp):
 
 
 def test_countdown_cancel_by_click(qapp):
+    from PySide6.QtCore import QEvent, QPointF, Qt
     from PySide6.QtGui import QMouseEvent
-    from PySide6.QtCore import QPointF, Qt, QEvent
 
     from src.show.show_controller import CountdownOverlay
 
@@ -166,25 +169,53 @@ def test_countdown_cancel_by_click(qapp):
     cancelled: list[bool] = []
     overlay.cancelled.connect(lambda: cancelled.append(True))
     overlay.begin()
-    overlay._timer.stop()  # 防止测试中归零完成
-    ev = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
-                     Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    overlay._timer.stop()
+    ev = QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+    )
     overlay.mousePressEvent(ev)
     assert cancelled == [True]
 
 
-# ---------- ShowController 单屏流转 ----------
+# ---------- ShowController 状态机（替身引擎链） ----------
+
+class _FakeLoEngine(BaseEngine):
+    """替身：声称是 LibreOffice → 走投影窗路径。"""
+
+    name = ENGINE_LIBREOFFICE
+    supports_show = True
+    supports_render = True
+
+
+def _fake_chain():
+    from src.render.engine import EngineChain
+
+    cands = EngineCandidates(infos=[EngineInfo(ENGINE_LIBREOFFICE, True, True, True)])
+    return EngineChain([_FakeLoEngine()], cands)
+
 
 @pytest.fixture()
 def controller(qapp, tmp_path):
     from src.show.show_controller import ShowController
 
     cfg = Config(settings_path=tmp_path / "cfg.ini")
-    cfg.set_single_screen_confirm(True)
-    cfg.sync()
-    ctl = ShowController(FakePageWorker(), cfg)
+    ctl = ShowController(FakePageWorker(), cfg, chain=_fake_chain())
     yield ctl
     ctl.end()
+
+
+def test_controller_no_engine_fails_gracefully(qapp, tmp_path):
+    from src.render.engine import EngineChain
+    from src.show.show_controller import ShowController
+
+    cfg = Config(settings_path=tmp_path / "cfg.ini")
+    ctl = ShowController(FakePageWorker(), cfg, chain=EngineChain([], EngineCandidates()))
+    failures: list[str] = []
+    ctl.show_failed.connect(failures.append)
+    ctl.start(tmp_path / "诗歌.pptx", [])
+    assert ctl.state.value == "idle"
+    assert failures and "无可用放映引擎" in failures[0]
 
 
 def test_controller_single_screen_flow(qapp, controller, tmp_path):
@@ -192,13 +223,9 @@ def test_controller_single_screen_flow(qapp, controller, tmp_path):
 
     screens = enumerate_screens()
     assert len(screens) >= 1
-    # enumerate 的真实 QScreen 供 Controller 使用；多屏环境下 single 判定基于 len>=2，
-    # 但 dual_allowed=False → decide_show_screen（主屏）路径
-    controller.start(tmp_path / "诗歌.pptx", screens, dual_allowed=False)
-    # 本机为 2 屏（Sidecar），confirm 分支只在单屏触发；离屏 CI 为 1 屏
+    controller.start(tmp_path / "诗歌.pptx", screens)
     if len(screens) < 2 and controller._config.single_screen_confirm:
         assert controller.state == ShowState.COUNTDOWN
-        # 加速倒计时
         controller._overlay._timer.setInterval(20)
         t0 = time.time()
         while controller.state != ShowState.SHOWING and time.time() - t0 < 5:
@@ -206,8 +233,8 @@ def test_controller_single_screen_flow(qapp, controller, tmp_path):
             time.sleep(0.02)
     assert controller.state == ShowState.SHOWING
     assert controller._projection is not None
+    assert controller._presenter is None  # 单屏无演示者窗
 
-    # 结束
     controller.end()
     qapp.processEvents()
     assert controller.state == ShowState.ENDED
@@ -224,14 +251,7 @@ def test_controller_repeat_start_ignored(qapp, controller, tmp_path):
     assert controller.requested_ppt().name == "A.pptx"
 
 
-def test_controller_no_screens(qapp, controller, tmp_path):
-    from src.show.show_controller import ShowState
-
-    controller.start(tmp_path / "诗歌.pptx", [])
-    assert controller.state == ShowState.IDLE
-
-
-# ---------- MainWindow F5 接线 ----------
+# ---------- MainWindow 放映入口 ----------
 
 @pytest.fixture()
 def window(qapp, tmp_path):
@@ -248,36 +268,30 @@ def window(qapp, tmp_path):
     win.close()
 
 
-def test_f5_without_selection_shows_hint(qapp, window):
-    window.start_show()
-    assert "请先选择" in window.statusBar().currentMessage()
+def test_f5_without_selection_hints(qapp, window):
+    window.start_show_from_selection()
+    assert "请先在树中选择" in window.statusBar().currentMessage()
 
 
 def test_f5_with_selection_starts_show(qapp, window, tmp_path, monkeypatch):
-    # 选中唯一的 pptx 文件
-    from src.ui.finder_view import ROLE_PATH
+    import time
 
+    t0 = time.time()
+    while window.tree.topLevelItemCount() == 0 and time.time() - t0 < 8:
+        qapp.processEvents()
+        time.sleep(0.05)
     target = str(window.config.main_dir / "诗歌.pptx")
-    window.navigate(window.config.main_dir)
-    for i in range(window.finder.count()):
-        if window.finder.item(i).data(ROLE_PATH) == target:
-            window.finder.setCurrentItem(window.finder.item(i))
-            break
+    window.tree.select_file(target)
     calls: list[tuple] = []
-    monkeypatch.setattr(window.show_controller, "start",
-                        lambda ppt, screens, dual_allowed=False: calls.append((ppt, len(screens))))
-    window.start_show()
-    assert len(calls) == 1
-    assert calls[0][0].name == "诗歌.pptx"
+    monkeypatch.setattr(
+        window.show_controller, "start",
+        lambda ppt, screens: calls.append((ppt, len(screens))),
+    )
+    window.start_show_from_selection()
+    assert len(calls) == 1 and calls[0][0].name == "诗歌.pptx"
     assert calls[0][1] >= 1
 
-
-def _select_first_ppt(window) -> None:
-    from src.ui.finder_view import ROLE_PATH
-
-    window.navigate(window.config.main_dir)
-    for i in range(window.finder.count()):
-        item = window.finder.item(i)
-        if item.data(ROLE_PATH):
-            window.finder.setCurrentItem(item)
-            return
+    # 双击文件 = 放映（同一入口）
+    calls.clear()
+    window.tree.file_double_clicked.emit(target)
+    assert len(calls) == 1

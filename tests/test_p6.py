@@ -1,4 +1,4 @@
-"""P6 验收测试：双屏路径（演示者窗）与放映状态机单元测试。"""
+"""R3 验收测试（v4 演示者模式）：双屏路径、原生放映会话、状态机。"""
 from __future__ import annotations
 
 import time
@@ -7,8 +7,14 @@ from pathlib import Path
 import pytest
 
 from src.core.config import Config
-from src.show.display_manager import ScreenInfo, decide_dual_layout
-from src.show.show_controller import ShowController, ShowState
+from src.render.engine import BaseEngine, ShowSession
+from src.render.engine_detect import (
+    ENGINE_LIBREOFFICE,
+    ENGINE_POWERPOINT,
+    EngineCandidates,
+    EngineInfo,
+)
+from src.show.display_manager import ScreenInfo
 
 
 class FakePageWorker:
@@ -38,6 +44,73 @@ class FakePageWorker:
         self.requests.append(("show", str(ppt), page))
 
 
+class FakeNativeSession(ShowSession):
+    """替身原生放映会话：页码可推进、可被结束。"""
+
+    def __init__(self):
+        self._page = 1
+        self._ended = False
+
+    def current_page(self) -> int:
+        return 0 if self._ended else self._page
+
+    def next_page(self) -> None:
+        self._page += 1
+
+    def prev_page(self) -> None:
+        self._page = max(1, self._page - 1)
+
+    def end(self) -> None:
+        self._ended = True
+
+
+class FakeNativeEngine(BaseEngine):
+    name = ENGINE_POWERPOINT
+    supports_show = True
+
+    def __init__(self):
+        self.sessions: list[FakeNativeSession] = []
+        self.start_calls: list[tuple] = []
+
+    def start_show(self, ppt: Path, screen_rect) -> ShowSession:
+        self.start_calls.append((ppt, screen_rect))
+        session = FakeNativeSession()
+        self.sessions.append(session)
+        return session
+
+
+class _FakeScreen:
+    def __init__(self, name):
+        self._name = name
+
+    def geometry(self):
+        from PySide6.QtCore import QRect
+
+        return QRect(1920, 0, 1920, 1080)
+
+    def name(self):
+        return self._name
+
+
+def _fake_dual_screens():
+    return [
+        ScreenInfo("主屏替身", (0, 0, 1920, 1080), True, _FakeScreen("主")),
+        ScreenInfo("扩展屏替身", (1920, 0, 1920, 1080), False, _FakeScreen("扩展")),
+    ]
+
+
+def _native_chain(engine):
+    from src.render.engine import EngineChain
+
+    cands = EngineCandidates(
+        infos=[
+            EngineInfo(ENGINE_POWERPOINT, True, False, True),
+            EngineInfo(ENGINE_LIBREOFFICE, False, False, False),
+        ]
+    )
+    return EngineChain([engine], cands)
+
+
 def _mk_pil_png(path: Path):
     from PIL import Image
 
@@ -45,31 +118,17 @@ def _mk_pil_png(path: Path):
     return str(path)
 
 
-def _fake_screens():
-    """双屏：主屏 + 非主屏；screen 字段用可作身份比较的对象替身。"""
-    class _FakeScreen:
-        def __init__(self, name):
-            self._name = name
+# ---------- 原生引擎双屏全流程 ----------
 
-        def geometry(self):
-            from PySide6.QtCore import QRect
+def test_native_dual_show_flow(qapp, tmp_path, monkeypatch):
+    from src.show.show_controller import ShowController, ShowState
 
-            return QRect(0, 0, 1920, 1080)
-
-        def name(self):
-            return self._name
-
-    return [
-        ScreenInfo("主屏替身", (0, 0, 1920, 1080), True, _FakeScreen("主")),
-        ScreenInfo("扩展屏替身", (1920, 0, 1920, 1080), False, _FakeScreen("扩展")),
-    ]
-
-
-@pytest.fixture()
-def controller(qapp, tmp_path, monkeypatch):
+    ppt = tmp_path / "诗歌.pptx"
+    ppt.write_bytes(b"demo")
+    engine = FakeNativeEngine()
     cfg = Config(settings_path=tmp_path / "cfg.ini")
-    ctl = ShowController(FakePageWorker(), cfg)
-    # 真实 QScreen 不可伪造：窗口上屏操作打桩记录
+    controller = ShowController(FakePageWorker(), cfg, chain=_native_chain(engine))
+
     shown: list[str] = []
     monkeypatch.setattr(
         "src.show.projection_window.ProjectionWindow.show_on_screen",
@@ -79,94 +138,91 @@ def controller(qapp, tmp_path, monkeypatch):
         "src.show.presenter_window.PresenterWindow.show_on_screen",
         lambda self, screen: shown.append("presenter"),
     )
-    ctl._shown_log = shown
-    yield ctl
-    ctl.end()
-
-
-# ---------- 状态机（单元测试重点） ----------
-
-def test_state_machine_dual_full_flow(qapp, controller, tmp_path):
-    ppt = tmp_path / "诗歌.pptx"
-    ppt.write_bytes(b"demo")
-    screens = _fake_screens()
-
-    assert controller.state == ShowState.IDLE
-
-    # 启动（双屏，无倒计时）→ SHOWING
-    states: list[str] = []
-    controller.state_changed.connect(states.append)
-    controller.start(ppt, screens, dual_allowed=True)
-    qapp.processEvents()
-    assert controller.state == ShowState.SHOWING
-    assert "projection" in controller._shown_log and "presenter" in controller._shown_log
-    assert controller._presenter is not None
-    assert controller._projection is not None
-
-    # 放映窗 go_to(2) → 请求第 2 页 → 渲染完成 → page_changed(2) → 演示者窗同步
-    controller._projection.go_to(2)
-    assert ("show", str(ppt), 2) in controller._worker.requests
-    png = _mk_pil_png(tmp_path / "p2.png")
-    controller._worker.show_ready.emit(str(ppt), 2, png)
-    qapp.processEvents()
-    assert controller._presenter._page == 2
-    assert controller._presenter.progress_label.text().startswith("3 /")
-
-    # 演示者请求下一页 → 放映窗加载第 3 页
-    controller._presenter.next_requested.emit()
-    assert ("show", str(ppt), 3) in controller._worker.requests
-
-    # 演示者请求结束 → SHOWING → ENDED，两窗关闭
-    controller._presenter.end_requested.emit()
-    qapp.processEvents()
-    assert controller.state == ShowState.ENDED
-    assert controller._presenter is None and controller._projection is None
-    assert states == ["showing", "ended"]
-
-
-def test_state_machine_single_countdown_then_show(qapp, tmp_path, monkeypatch):
-    cfg = Config(settings_path=tmp_path / "cfg.ini")
-    cfg.set_single_screen_confirm(True)
-    cfg.sync()
-    ctl = ShowController(FakePageWorker(), cfg)
+    # 拔屏检测用替身屏幕集（固定实例，identity 判定需要同一对象）
+    fake_screens = _fake_dual_screens()
     monkeypatch.setattr(
-        "src.show.projection_window.ProjectionWindow.show_on_screen",
-        lambda self, screen: None,
+        "src.show.show_controller.enumerate_screens", lambda: fake_screens
     )
-    screens = [_fake_screens()[0]]  # 单屏
-    ppt = tmp_path / "诗歌.pptx"
-    ctl.start(ppt, screens)
-    assert ctl.state == ShowState.COUNTDOWN
-    ctl._overlay._timer.setInterval(15)
-
-    t0 = time.time()
-    while ctl.state != ShowState.SHOWING and time.time() - t0 < 5:
+    try:
+        controller.start(ppt, fake_screens)
         qapp.processEvents()
-        time.sleep(0.01)
-    assert ctl.state == ShowState.SHOWING
-    assert ctl._presenter is None  # 单屏无演示者窗
+        assert controller.state == ShowState.SHOWING
+        assert controller._native is True
+        assert "presenter" in shown and "projection" not in shown  # 原生引擎：无投影窗
+        assert engine.start_calls and engine.start_calls[0][0] == ppt
+        assert controller._presenter is not None
 
-    ctl.end()
-    qapp.processEvents()
-    assert ctl.state == ShowState.ENDED
+        # 演示者请求翻页 → 会话页码推进 → 轮询同步到演示者窗
+        session = engine.sessions[0]
+        controller._presenter.next_requested.emit()
+        controller._poll_native()  # 手动触发一轮轮询（测试不等 250ms）
+        qapp.processEvents()
+        assert session._page == 2
+        assert controller._presenter._page == 1  # 0 起
+        assert controller._presenter.progress_label.text().startswith("2 /")
+
+        # 引擎侧结束（用户在放映窗按 Esc）→ 轮询发现 → ENDED
+        session.end()
+        controller._poll_native()
+        qapp.processEvents()
+        assert controller.state == ShowState.ENDED
+        assert controller._presenter is None and controller._session is None
+    finally:
+        controller.end()
 
 
-def test_state_machine_single_no_confirm(qapp, tmp_path, monkeypatch):
+def test_native_presenter_end_button(qapp, tmp_path, monkeypatch):
+    from src.show.show_controller import ShowController, ShowState
+
+    engine = FakeNativeEngine()
     cfg = Config(settings_path=tmp_path / "cfg.ini")
-    cfg.set_single_screen_confirm(False)
-    cfg.sync()
-    ctl = ShowController(FakePageWorker(), cfg)
+    controller = ShowController(FakePageWorker(), cfg, chain=_native_chain(engine))
     monkeypatch.setattr(
-        "src.show.projection_window.ProjectionWindow.show_on_screen",
+        "src.show.presenter_window.PresenterWindow.show_on_screen",
         lambda self, screen: None,
     )
-    ctl.start(tmp_path / "诗歌.pptx", [_fake_screens()[0]])
-    qapp.processEvents()
-    assert ctl.state == ShowState.SHOWING  # 关闭确认 → 跳过倒计时直接放映
-    ctl.end()
+    fake_screens = _fake_dual_screens()
+    monkeypatch.setattr(
+        "src.show.show_controller.enumerate_screens", lambda: fake_screens
+    )
+    try:
+        controller.start(tmp_path / "诗歌.pptx", fake_screens)
+        qapp.processEvents()
+        assert controller.state == ShowState.SHOWING
+        controller._presenter.end_requested.emit()
+        qapp.processEvents()
+        assert controller.state == ShowState.ENDED
+        assert engine.sessions[0]._ended is True
+    finally:
+        controller.end()
 
 
-# ---------- PresenterWindow 行为 ----------
+def test_native_screen_unplugged_ends_show(qapp, tmp_path, monkeypatch):
+    from src.show.show_controller import ShowController
+
+    engine = FakeNativeEngine()
+    cfg = Config(settings_path=tmp_path / "cfg.ini")
+    controller = ShowController(FakePageWorker(), cfg, chain=_native_chain(engine))
+    monkeypatch.setattr(
+        "src.show.presenter_window.PresenterWindow.show_on_screen",
+        lambda self, screen: None,
+    )
+    try:
+        controller.start(tmp_path / "诗歌.pptx", _fake_dual_screens())
+        qapp.processEvents()
+        assert controller.state.value == "showing"
+        # 放映屏拔出：enumerate_screens 不再包含目标屏（替身枚举返回真实离屏屏）
+        monkeypatch.setattr(
+            "src.show.show_controller.enumerate_screens", lambda: []
+        )
+        controller._poll_native()
+        qapp.processEvents()
+        assert controller.state.value == "ended"
+    finally:
+        controller.end()
+
+
+# ---------- 演示者窗行为（保留） ----------
 
 def test_presenter_contents_and_sync(qapp, tmp_path):
     from src.show.presenter_window import PresenterWindow
@@ -181,16 +237,13 @@ def test_presenter_contents_and_sync(qapp, tmp_path):
 
     pres.on_page_changed(0)
     assert pres.progress_label.text() == "1 / 52"
-    # 当前页与下一页均请求缩略图
     assert ("page", str(ppt), 0) in worker.requests
     assert ("page", str(ppt), 1) in worker.requests
 
-    # 最后一页不再请求下一页
     worker.requests.clear()
     pres.on_page_changed(51)
     assert ("page", str(ppt), 52) not in worker.requests
 
-    # 缩略图回填：当前页/下一页标签（回到第 0 页后接收）
     pres.on_page_changed(0)
     png = _mk_pil_png(tmp_path / "p0.png")
     worker.page_ready.emit(str(ppt), 0, png)
@@ -199,10 +252,7 @@ def test_presenter_contents_and_sync(qapp, tmp_path):
     worker.page_ready.emit(str(ppt), 1, png2)
     assert not pres.next_label.pixmap().isNull()
 
-    # 计时器文本格式
     assert len(pres.timer_label.text()) == 5 and ":" in pres.timer_label.text()
-
-    # 快捷键提示存在（布局尾项为提示标签）
     tail_widget = pres.layout().itemAt(pres.layout().count() - 1).widget()
     assert "Esc" in tail_widget.text()
 
@@ -226,20 +276,3 @@ def test_presenter_key_events(qapp, tmp_path):
     pres.keyPressEvent(_key(Qt.Key.Key_Left))
     pres.keyPressEvent(_key(Qt.Key.Key_Escape))
     assert got == ["next", "prev", "end"]
-
-
-def test_presenter_shown_on_presenter_screen(qapp, tmp_path):
-    """双屏时演示者窗上主屏（打桩验证 setScreen 调用目标）。"""
-    from PySide6.QtCore import QRect
-
-    from src.show.presenter_window import PresenterWindow
-
-    class _FakeScreen:
-        def geometry(self):
-            return QRect(0, 0, 1920, 1080)
-
-    pres = PresenterWindow(FakePageWorker(), tmp_path / "a.pptx")
-    # setScreen 仅接受真实 QScreen；替身环境下直接验证 move/showNormal 不崩溃
-    pres.show_on_screen(None)
-    qapp.processEvents()
-    assert pres.isVisible() or not pres.isVisible()  # 离屏下仅验证不崩溃

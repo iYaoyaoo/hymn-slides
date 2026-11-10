@@ -47,7 +47,11 @@ class ProjectionWindow(QWidget):
     # ---------- 屏幕 ----------
 
     def show_on_screen(self, screen) -> None:
-        """全屏置于指定 QScreen（仅按几何，不假设身份）。"""
+        """全屏置于指定 QScreen（仅按几何，不假设身份）。
+
+        v4 加固：macOS showFullScreen 可能将窗口重定位到当前屏，
+        显示后再次断言几何并 raise_（修复"放映落主屏"）。
+        """
         self._target_screen = screen
         if screen is not None:
             self.setGeometry(screen.geometry())
@@ -56,7 +60,11 @@ class ProjectionWindow(QWidget):
             if isinstance(screen, QScreen):
                 self.setScreen(screen)
         self.showFullScreen()
+        if screen is not None:
+            self.setGeometry(screen.geometry())
+        self.raise_()
         self.activateWindow()
+        logger.info("投影窗几何：%s 目标屏=%s", self.geometry().getRect(), screen)
         self._load_page(self._page)
 
     def current_screen(self):

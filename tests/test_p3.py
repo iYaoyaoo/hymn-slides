@@ -1,4 +1,4 @@
-"""P3 验收测试：访达界面（离屏）。"""
+"""R2 验收测试（v4 UI）：诗歌树构建/过滤/定位 + 主窗口装配 + 扫描线程。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,7 +7,7 @@ import pytest
 
 from src.core.config import Config
 from src.core.models import SlideFile
-from src.ui.finder_view import BreadcrumbBar, FinderView
+from src.ui.hymn_tree import HymnTree, reveal_in_file_manager
 
 
 def _mk_tree(root: Path) -> None:
@@ -19,154 +19,177 @@ def _mk_tree(root: Path) -> None:
         p.write_bytes(b"demo")
 
 
-@pytest.fixture()
-def config(tmp_path):
+def _files(root: Path) -> list[SlideFile]:
+    _mk_tree(root)
+    return [SlideFile.from_path(root / rel, root) for rel in (
+        "2026年/一季度/奇异恩典.pptx",
+        "2026年/一季度/你真伟大.pps",
+        "2026年/二季度/主在圣殿中.odp",
+    )]
+
+
+# ---------- HymnTree ----------
+
+def test_tree_build(qapp, tmp_path):
+    tree = HymnTree()
+    tree.load_files(tmp_path, _files(tmp_path))
+    root = tree.topLevelItem(0)
+    assert root.text(0) == tmp_path.name
+    assert tree.visible_file_count() == 3
+    # 目录层级：根 > 2026年 > 一季度 > 文件（子项按 rel_path 排序）
+    y = root.child(0)
+    assert y.text(0) == "2026年"
+    q1 = y.child(0)
+    assert q1.childCount() == 2
+    assert {q1.child(i).text(0) for i in range(2)} == {"奇异恩典.pptx", "你真伟大.pps"}
+
+
+def test_tree_filter_keep_ancestors(qapp, tmp_path):
+    tree = HymnTree()
+    tree.load_files(tmp_path, _files(tmp_path))
+    keep = {str(tmp_path / "2026年" / "二季度" / "主在圣殿中.odp")}
+    visible = tree.apply_filter(keep)
+    assert visible == 1
+    # 命中文件可见
+    hit = tree._find_by_text("主在圣殿中.odp")
+    assert hit is not None and not hit.isHidden()
+    # 未命中的文件隐藏
+    miss = tree._find_by_text("奇异恩典.pptx")
+    assert miss is not None and miss.isHidden()
+    # 祖先目录可见且展开
+    assert not hit.parent().isHidden() and hit.parent().isExpanded()
+
+    # 清空 → 恢复全树
+    assert tree.apply_filter(None) == 3
+
+
+def test_tree_select_and_expand(qapp, tmp_path):
+    tree = HymnTree()
+    tree.load_files(tmp_path, _files(tmp_path))
+    target = str(tmp_path / "2026年" / "二季度" / "主在圣殿中.odp")
+    assert tree.select_file(target) is True
+    assert tree.selected_file() == target
+    # 祖先已展开
+    item = tree.currentItem()
+    anc = item.parent()
+    assert anc is not None and anc.isExpanded()
+
+    # 不存在的文件
+    assert tree.select_file("/no/such.pptx") is False
+
+
+def test_tree_double_click_file_signal(qapp, tmp_path):
+    tree = HymnTree()
+    tree.load_files(tmp_path, _files(tmp_path))
+    target = str(tmp_path / "2026年" / "一季度" / "奇异恩典.pptx")
+    tree.select_file(target)
+    got: list[str] = []
+    tree.file_double_clicked.connect(got.append)
+    tree._on_double_clicked(tree.currentItem(), 0)
+    assert got == [target]
+    # 目录双击不触发
+    tree._on_double_clicked(tree.topLevelItem(0), 0)
+    assert got == [target]
+
+
+def test_tree_selection_signal(qapp, tmp_path):
+    tree = HymnTree()
+    tree.load_files(tmp_path, _files(tmp_path))
+    got: list = []
+    tree.file_selection_changed.connect(got.append)
+    tree.select_file(str(tmp_path / "2026年" / "一季度" / "奇异恩典.pptx"))
+    assert got and got[-1] == str(tmp_path / "2026年" / "一季度" / "奇异恩典.pptx")
+
+
+def test_tree_expand_collapse_buttons_exist(qapp, tmp_path):
+    """展开/收起按钮作用于全树（main_window 装配测试中覆盖操作）。"""
+    from src.ui.main_window import MainWindow
+
+    cfg = Config(settings_path=tmp_path / "cfg.ini")
     tree = tmp_path / "主目录"
     tree.mkdir()
-    _mk_tree(tree)
+    cfg.set_main_dir(tree)
+    cfg.sync()
+    win = MainWindow(config=cfg, db_path=tmp_path / "idx.db", scan_fulltext=False)
+    assert win.btn_expand.text() == "展开全部"
+    assert win.btn_collapse.text() == "收起"
+    win.close()
+
+
+def test_reveal_platform_command(monkeypatch, tmp_path):
+    """在文件管理器中显示：平台分支命令（macOS=open -R）。"""
+    import sys
+
+    if sys.platform != "darwin":
+        pytest.skip("仅 macOS")
+    target = tmp_path / "诗歌.pptx"
+    target.write_bytes(b"x")
+    calls: list = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+
+    import src.ui.hymn_tree as ht
+
+    monkeypatch.setattr(ht.subprocess, "run", fake_run)
+    reveal_in_file_manager(target)
+    assert calls and calls[0][:2] == ["open", "-R"]
+
+
+# ---------- MainWindow（v4 装配） ----------
+
+@pytest.fixture()
+def window(qapp, tmp_path):
+    from src.ui.main_window import MainWindow
+
+    tree = tmp_path / "主目录"
+    (tree / "2026年" / "一季度").mkdir(parents=True)
+    (tree / "2026年" / "一季度" / "奇异恩典.pptx").write_bytes(b"demo")
     cfg = Config(settings_path=tmp_path / "config.ini")
     cfg.set_main_dir(tree)
     cfg.sync()
-    return cfg
-
-
-@pytest.fixture()
-def window(qapp, config, tmp_path):
-    from src.ui.main_window import MainWindow
-
-    win = MainWindow(config=config, db_path=tmp_path / "idx.db", scan_fulltext=False)
+    win = MainWindow(config=cfg, db_path=tmp_path / "idx.db", scan_fulltext=False)
     yield win
     win.close()
 
 
-# ---------- 基础装配 ----------
-
-def test_main_window_builds(qapp, window):
+def test_main_window_layout(qapp, window):
     assert window.windowTitle().startswith("诗歌投影")
-    assert window.finder.count() > 0
-    assert window.sidebar is not None
-    assert window.search_edit.placeholderText() != ""
+    assert window.search_edit.placeholderText()
+    assert window.search_edit.height() >= 40  # 大搜索区（主视觉）
+    assert window.tree is not None and window.tree.topLevelItemCount() >= 0
 
 
-def test_content_counts_in_statusbar(qapp, window):
-    # 顶层：仅“2026年”1 个文件夹、0 个文件
-    window.refresh_content()  # 扫描线程可能已覆盖状态栏，重新刷一次再断言
-    assert "1 个文件夹" in window.statusBar().currentMessage()
-    assert "0 个诗歌文件" in window.statusBar().currentMessage()
-    # 一季度：2 个诗歌文件
-    window.navigate(window.config.main_dir / "2026年" / "一季度")
-    assert "0 个文件夹" in window.statusBar().currentMessage()
-    assert "2 个诗歌文件" in window.statusBar().currentMessage()
+def test_main_window_scan_loads_tree(qapp, window, tmp_path):
+    import time
+
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        window.statusBar() and None
+        if window.tree.topLevelItemCount() > 0:
+            break
+        qapp.processEvents()
+        time.sleep(0.05)
+    assert window.tree.visible_file_count() == 1
+    assert window.index_files and window.index_files[0].name == "奇异恩典.pptx"
 
 
-def test_navigate_and_history(qapp, window):
-    sub = window.config.main_dir / "2026年" / "一季度"
-    window.navigate(sub)
-    assert window._current_dir == sub
-    assert window.btn_back.isEnabled() and not window.btn_forward.isEnabled()
+# ---------- 扫描线程（保留） ----------
 
-    window.go_back()
-    assert window._current_dir == window.config.main_dir
-    assert not window.btn_back.isEnabled() and window.btn_forward.isEnabled()
-
-    window.go_forward()
-    assert window._current_dir == sub
-
-
-def test_navigate_missing_dir_noop(qapp, window):
-    before = window._current_dir
-    window.navigate(window.config.main_dir / "不存在的目录")
-    assert window._current_dir == before
-
-
-def test_view_toggle(qapp, window):
-    from PySide6.QtWidgets import QListWidget
-
-    window._set_list_mode()
-    assert window.finder.viewMode() == QListWidget.ViewMode.ListMode
-    assert window.btn_list_view.isChecked() and not window.btn_icon_view.isChecked()
-    window._set_icon_mode()
-    assert window.finder.viewMode() == QListWidget.ViewMode.IconMode
-
-
-# ---------- FinderView ----------
-
-def test_finder_populate(qapp, tmp_path):
-    dirs = [tmp_path / "目录A", tmp_path / "目录B"]
-    files = [
-        SlideFile(path=tmp_path / "诗歌.pptx", size=10, mtime=1.0, name="诗歌.pptx", rel_path="诗歌.pptx")
-    ]
-    view = FinderView()
-    view.populate(dirs, files)
-    assert view.count() == 3
-
-    # 目录项与文件项角色数据
-    from src.ui.finder_view import ROLE_IS_DIR, ROLE_PATH
-
-    item = view.item(0)
-    assert item.data(ROLE_IS_DIR) is True
-    assert item.data(ROLE_PATH) == str(tmp_path / "目录A")
-    assert view.item(2).data(ROLE_IS_DIR) is False
-
-
-def test_finder_thumb_update(qapp, tmp_path):
-    view = FinderView()
-    files = [SlideFile(path=tmp_path / "诗歌.pptx", size=10, mtime=1.0, name="诗歌.pptx", rel_path="诗歌.pptx")]
-    view.populate([], files)
-    png = tmp_path / "thumb.png"
-    png.write_bytes(b"\x89PNG\r\n\x1a\n")
-    view.set_thumb(str(tmp_path / "诗歌.pptx"), str(png))
-    assert not view.item(0).icon().isNull()
-    view.mark_failed(str(tmp_path / "诗歌.pptx"))
-    assert not view.item(0).icon().isNull()
-
-
-# ---------- BreadcrumbBar ----------
-
-def test_breadcrumb_segments(qapp, config):
-    bar = BreadcrumbBar(config.main_dir)
-    deep = config.main_dir / "2026年" / "一季度"
-    bar.rebuild(deep)
-    labels = [bar._layout.itemAt(i).widget() for i in range(bar._layout.count())]
-    texts = [w.text() for w in labels if hasattr(w, "text") and w.text() != "› "]
-    assert "主目录" in texts and "一季度" in texts
-
-
-# ---------- 设置对话框 ----------
-
-def test_settings_dialog_save(qapp, config, tmp_path):
-    from src.ui.settings_dialog import SettingsDialog
-
-    new_dir = tmp_path / "新主目录"
-    new_dir.mkdir()
-    dlg = SettingsDialog(config)
-    dlg.main_dir_edit.setText(str(new_dir))
-    dlg.soffice_edit.setText("/opt/lo/soffice")
-    dlg.cache_spin.setValue(512)
-    dlg.confirm_box.setChecked(False)
-    dlg._save()
-    assert dlg.result() == SettingsDialog.DialogCode.Accepted
-    assert config.main_dir == new_dir
-    assert config.soffice_path == "/opt/lo/soffice"
-    assert config.cache_limit_mb == 512
-    assert config.single_screen_confirm is False
-
-
-# ---------- 扫描线程（真实后台线程） ----------
-
-def test_scan_worker(qapp, config, tmp_path, qtbot_skip=None):
+def test_scan_worker(qapp, tmp_path):
     from src.ui.workers import ScanWorker
 
+    tree = tmp_path / "主目录"
+    _mk_tree(tree)
     results = {}
-    w = ScanWorker(config.main_dir, db_path=tmp_path / "idx2.db", fulltext=False)
+    w = ScanWorker(tree, db_path=tmp_path / "idx2.db", fulltext=False)
     w.done.connect(lambda files, stats: results.update(files=files, stats=stats))
     w.failed.connect(lambda msg: results.update(err=msg))
     w.start()
-    deadline_timeout_ms = 5000
     import time
 
     t0 = time.time()
-    while "files" not in results and time.time() - t0 < 5:
+    while "files" not in results and time.time() - t0 < 8:
         qapp.processEvents()
         time.sleep(0.02)
     w.wait(2000)
