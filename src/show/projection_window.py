@@ -83,10 +83,6 @@ class ProjectionWindow(QWidget):
         self.image_label.setText(f"加载中…（第 {page + 1} 页）")
         self._worker.request_show(self._ppt, page)
 
-    def go_to(self, page: int) -> None:
-        """外部（演示者窗）请求跳页。"""
-        self._load_page(page)
-
     def next_page(self) -> None:
         self._load_page(self._page + 1)
 

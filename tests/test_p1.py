@@ -142,12 +142,14 @@ def test_search_filename_chinese(tmp_path):
         assert rs == []
 
 
-def test_search_fulltext_page_and_snippet(tmp_path):
+def test_search_fulltext_hit_file(tmp_path):
+    """全文命中返回文件标识（v4：树过滤按文件粒度，多页命中合并为一条）。"""
     with _index_with_texts(tmp_path) as idx:
         rs = search_fulltext(idx._conn, "赦免")
-        assert len(rs) == 1
-        assert rs[0].page == 2
-        assert "【赦免】" in rs[0].snippet
+        assert len(rs) == 1 and rs[0].name == "奇异恩典.pptx"
+        # 多页命中同一文件合并
+        rs = search_fulltext(idx._conn, "主")
+        assert len(rs) == 2  # 两个文件各一条
 
 
 def test_search_all_dedup_order(tmp_path):
@@ -156,7 +158,7 @@ def test_search_all_dedup_order(tmp_path):
         # “你真伟大.pptx”文件名命中；其余“伟大”全文命中共 1 条 → 同文件已去重
         assert len(rs) == 1
         rs2 = search_all(idx._conn, "真伟大")
-        assert rs2[0].name == "你真伟大.pptx" and rs2[0].page is None  # 文件名命中优先（无页码）
+        assert rs2[0].name == "你真伟大.pptx"  # 文件名命中优先
 
 
 def test_search_like_escape(tmp_path):

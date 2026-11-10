@@ -115,8 +115,8 @@ def test_escape_clears_search(qapp, window):
     assert window.tree.visible_file_count() == 2
 
 
-def test_search_via_index_fulltext_page(qapp, tmp_path):
-    """全文命中页码与片段（引擎无关，索引层既有能力）。"""
+def test_search_via_index_fulltext(qapp, tmp_path):
+    """全文命中返回文件（v4：树过滤按文件粒度）。"""
     tree = tmp_path / "主目录"
     tree.mkdir()
     (tree / "诗歌.pptx").write_bytes(b"demo")
@@ -125,4 +125,4 @@ def test_search_via_index_fulltext_page(qapp, tmp_path):
         fid = idx.file_id_by_path(str(tree / "诗歌.pptx"))
         idx.upsert_slide_texts(fid, [(1, "何等奇妙的救主"), (2, "我罪已得赦免")])
         rs = search_all(idx._conn, "赦免")
-        assert len(rs) == 1 and rs[0].page == 2 and "【赦免】" in rs[0].snippet
+        assert len(rs) == 1 and rs[0].name == "诗歌.pptx"

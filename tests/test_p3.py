@@ -49,14 +49,15 @@ def test_tree_build(qapp, tmp_path):
 def test_tree_filter_keep_ancestors(qapp, tmp_path):
     tree = HymnTree()
     tree.load_files(tmp_path, _files(tmp_path))
-    keep = {str(tmp_path / "2026年" / "二季度" / "主在圣殿中.odp")}
+    hit_path = str(tmp_path / "2026年" / "二季度" / "主在圣殿中.odp")
+    keep = {hit_path}
     visible = tree.apply_filter(keep)
     assert visible == 1
     # 命中文件可见
-    hit = tree._find_by_text("主在圣殿中.odp")
+    hit = tree._find_by_path(hit_path)
     assert hit is not None and not hit.isHidden()
     # 未命中的文件隐藏
-    miss = tree._find_by_text("奇异恩典.pptx")
+    miss = tree._find_by_path(str(tmp_path / "2026年" / "一季度" / "奇异恩典.pptx"))
     assert miss is not None and miss.isHidden()
     # 祖先目录可见且展开
     assert not hit.parent().isHidden() and hit.parent().isExpanded()
@@ -94,13 +95,13 @@ def test_tree_double_click_file_signal(qapp, tmp_path):
     assert got == [target]
 
 
-def test_tree_selection_signal(qapp, tmp_path):
+def test_tree_selected_file_property(qapp, tmp_path):
+    """选中查询（selected_file）随选择变化正确更新（v4 无选中信号消费者，验证查询属性）。"""
     tree = HymnTree()
     tree.load_files(tmp_path, _files(tmp_path))
-    got: list = []
-    tree.file_selection_changed.connect(got.append)
-    tree.select_file(str(tmp_path / "2026年" / "一季度" / "奇异恩典.pptx"))
-    assert got and got[-1] == str(tmp_path / "2026年" / "一季度" / "奇异恩典.pptx")
+    target = str(tmp_path / "2026年" / "一季度" / "奇异恩典.pptx")
+    assert tree.select_file(target) is True
+    assert tree.selected_file() == target
 
 
 def test_tree_expand_collapse_buttons_exist(qapp, tmp_path):
@@ -173,7 +174,7 @@ def test_main_window_scan_loads_tree(qapp, window, tmp_path):
         qapp.processEvents()
         time.sleep(0.05)
     assert window.tree.visible_file_count() == 1
-    assert window.index_files and window.index_files[0].name == "奇异恩典.pptx"
+    assert window.tree._find_by_path(str(tmp_path / "主目录" / "2026年" / "一季度" / "奇异恩典.pptx")) is not None
 
 
 # ---------- 扫描线程 ----------

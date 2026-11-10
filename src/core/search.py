@@ -1,12 +1,14 @@
-"""搜索：文件名模糊 + 幻灯片全文（LIKE，最简方案见 docs/schema.md）。"""
+"""搜索：文件名模糊 + 幻灯片全文（LIKE，最简方案见 docs/schema.md）。
+
+v4 F3：命中仅用于过滤树（命中文件+祖先链），无结果面板，故只返回文件
+标识（file_id/path/name），不生成命中片段。
+"""
 from __future__ import annotations
 
 from src.core.models import SearchResult
 from src.utils.logger import get_logger
 
 logger = get_logger("search")
-
-_SNIPPET_CONTEXT = 20  # 全文命中片段：关键词前后各取字符数
 
 
 def _escape_like(kw: str) -> str:
@@ -26,39 +28,22 @@ def search_filename(conn, keyword: str, limit: int = 200) -> list[SearchResult]:
 
 
 def search_fulltext(conn, keyword: str, limit: int = 200) -> list[SearchResult]:
-    """全文搜索：返回 file+页码+片段。同一文件多页命中各为一条。"""
+    """全文搜索：同一文件多页命中合并为一条（树过滤按文件粒度）。"""
     if not keyword.strip():
         return []
-    kw = keyword.strip()
-    pattern = f"%{_escape_like(kw)}%"
+    pattern = f"%{_escape_like(keyword.strip())}%"
     cur = conn.execute(
-        r"SELECT f.id, f.path, f.name, t.page, t.text "
+        r"SELECT DISTINCT f.id, f.path, f.name "
         r"FROM slide_texts t JOIN files f ON f.id = t.file_id "
         r"WHERE t.text LIKE ? ESCAPE '\' "
-        r"ORDER BY f.name, t.page LIMIT ?",
+        r"ORDER BY f.name LIMIT ?",
         (pattern, limit),
     )
-    results: list[SearchResult] = []
-    for fid, path, name, page, text in cur.fetchall():
-        snippet = _make_snippet(text, kw)
-        results.append(SearchResult(file_id=fid, path=path, name=name, page=page, snippet=snippet))
-    return results
-
-
-def _make_snippet(text: str, kw: str) -> str:
-    """取关键词前后各 _SNIPPET_CONTEXT 字符，关键词部分用【】标出。"""
-    pos = text.find(kw)
-    if pos < 0:
-        return text[: _SNIPPET_CONTEXT * 2]
-    start = max(0, pos - _SNIPPET_CONTEXT)
-    end = min(len(text), pos + len(kw) + _SNIPPET_CONTEXT)
-    prefix = "…" if start > 0 else ""
-    suffix = "…" if end < len(text) else ""
-    return f"{prefix}{text[start:pos]}【{kw}】{text[pos + len(kw):end]}{suffix}"
+    return [SearchResult(file_id=r[0], path=r[1], name=r[2]) for r in cur.fetchall()]
 
 
 def search_all(conn, keyword: str, limit: int = 200) -> list[SearchResult]:
-    """文件名 + 全文合并搜索；文件名命中排前，全文按文件名/页码排序。"""
+    """文件名 + 全文合并搜索；文件名命中排前，全文按文件名排序。"""
     by_name = search_filename(conn, keyword, limit)
     by_text = search_fulltext(conn, keyword, limit)
     seen: set[int] = set()

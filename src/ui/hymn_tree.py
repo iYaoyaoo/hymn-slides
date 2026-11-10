@@ -42,7 +42,6 @@ class HymnTree(QTreeWidget):
     """主界面核心树：目录+诗歌文件。"""
 
     file_double_clicked = Signal(str)        # 双击文件（=放映，v4 F4）
-    file_selection_changed = Signal(object)  # 选中文件路径 str|None
     reveal_requested = Signal(str)           # 右键菜单：在文件管理器中显示
 
     def __init__(self, parent=None):
@@ -54,10 +53,8 @@ class HymnTree(QTreeWidget):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
         self.itemDoubleClicked.connect(self._on_double_clicked)
-        self.itemSelectionChanged.connect(self._on_selection_changed)
         self._root_name = "诗歌目录"
         self._root_path = ""
-        self._root_item: QTreeWidgetItem | None = None
         self._dir_items: dict[str, QTreeWidgetItem] = {}
 
     # ---------- 构建 ----------
@@ -76,7 +73,6 @@ class HymnTree(QTreeWidget):
         root_item.setData(0, ROLE_PATH, str(root))
         root_item.setData(0, ROLE_IS_DIR, True)
         self.addTopLevelItem(root_item)
-        self._root_item = root_item
 
         self._dir_items: dict[str, QTreeWidgetItem] = {str(root): root_item}
 
@@ -198,16 +194,6 @@ class HymnTree(QTreeWidget):
         self._walk(visit)
         return found[0] if found else None
 
-    def _find_by_text(self, text: str) -> QTreeWidgetItem | None:
-        found: list[QTreeWidgetItem] = []
-
-        def visit(item):
-            if item.text(0) == text:
-                found.append(item)
-
-        self._walk(visit)
-        return found[0] if found else None
-
     # ---------- 右键菜单 ----------
 
     def _on_context_menu(self, pos) -> None:
@@ -225,9 +211,6 @@ class HymnTree(QTreeWidget):
     def _on_double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         if not bool(item.data(0, ROLE_IS_DIR)):
             self.file_double_clicked.emit(item.data(0, ROLE_PATH))
-
-    def _on_selection_changed(self) -> None:
-        self.file_selection_changed.emit(self.selected_file())
 
     @staticmethod
     def _path_of(item) -> str:

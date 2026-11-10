@@ -55,9 +55,7 @@ class ScanStats:
 
 @dataclass
 class SearchResult:
-    """搜索结果条目。"""
+    """搜索结果条目（v4 F3：树过滤按文件粒度，只含文件标识）。"""
     file_id: int
     path: str
     name: str
-    page: int | None = None   # 全文命中时的页码（1 起）
-    snippet: str = ""         # 全文命中时的片段

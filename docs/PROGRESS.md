@@ -56,6 +56,15 @@
 - **附带修复**：test_p3 并行断言竞态（瞬时替身任务可能被单工作线程吞掉，加 50ms 阻塞确定性触发多线程）。
 - 验收：pytest `79 passed`；`--selftest` PASS；`--render-test samples` 3/3（放映页 1920px 出图）。
 
+## v4.2.1 无用代码审计 + R5 真机验收记录（2026-11-10）
+
+- **R5 自动化验收（CI 产物 mac-intel.zip，SHA256 f6020508…da0fb 校验一致）**：三重 lipo 断言 x86_64 ✓；--selftest PASS ✓；--list-screens ✓；--render-test samples 3/3 ✓；--scan samples 8 ✓；**GUI 压力验收：真实素材 2872 文件（~/Downloads/诗歌投影直放版/，便携模式）并行全文提取 5 分钟进程存活、无新崩溃报告**（旧版在 2 秒内必崩，修复实证有效）。
+- **R5 真机发现（验收期间用户触发放映）**：mac PowerPoint AppleScript 启动失败且错误信息为空（违反可诊断性），回落 LO 投影窗机制正常生效。加固 as_engine：启动拆两步（打开文稿→重试启动放映 15 次等冷启动就绪）、错误必含 rc/stdout/stderr。**AS 真实放映仍待人工复核**（下个产物验证）。
+- **环境事实**：用户在验收期间卸载了 LibreOffice（/Applications/LibreOffice.app 不存在）→ 本机 LO 测试按设计跳过（4 skipped）；本机引擎链=PowerPoint（仅放映），全文索引按设计降级不可用（需重装 LO 或依赖放映引擎）。
+- **无用代码清理（全库审计）**：删 DisplayManager/screen_from_info（零引用）；删 lo_engine 占位会话 _LoShowSession 与 start_show 覆写（不可达，违反"无占位"规范）；删 thumbnail.refresh_index_fulltext、projection_window.go_to、show_controller.request_show_for（发后无连接）、hymn_tree.file_selection_changed（v3 预览面板遗留）/_find_by_text/_root_item、main_window.index_files（v3 finder 遗留）。
+- **搜索层简化**：SearchResult 去 page/snippet 片段字段与 _make_snippet（v4 F3 树过滤只需文件粒度）；全文查询改 DISTINCT 按文件合并。
+- 验收：pytest `75 passed, 4 skipped`（skip=本机 LO 类测试，与 CI 无 LO 环境同策略）。
+
 ## v4.1 修复（2026-11-10，用户真机反馈：2872 文件首扫树空白+卡顿）
 
 - **根因 1（致命，树空白）**：ScanWorker 把"元数据扫描"与"全文提取"串在一个 done 信号里——2872 文件的全文转换需数小时，期间树永远空白。

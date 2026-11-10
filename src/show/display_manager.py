@@ -1,13 +1,15 @@
-"""显示器管理（F7）：QScreen 枚举、动态增删响应、放映屏决策。
+"""显示器管理（F6/F7）：QScreen 枚举、放映屏决策。
 
 规范硬约束：禁止对屏幕身份（名称/序号/型号）做任何假设，
-仅依据“是否主显示器”与几何位置决策。
+仅依据"是否主显示器"与几何位置决策。
+
+动态增删响应：ShowController 自行连接 QGuiApplication.screenRemoved
+（放映屏被拔 → 自动结束），无需常驻监听器。
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QGuiApplication
 
 from src.utils.logger import get_logger
@@ -70,43 +72,3 @@ def decide_dual_layout(screens: list[ScreenInfo]) -> tuple[ScreenInfo | None, Sc
         return (None, None)
     show = max(others, key=lambda s: s.geometry[2] * s.geometry[3])
     return (show, primary)
-
-
-def screen_from_info(info: ScreenInfo):
-    """ScreenInfo → QScreen（若实体仍存在）。"""
-    if info.screen is not None:
-        current = QGuiApplication.screens()
-        if info.screen in current:
-            return info.screen
-    return None
-
-
-class DisplayManager(QObject):
-    """监听 screenAdded/screenRemoved，动态刷新布局（F7）。"""
-
-    screens_changed = Signal(list)  # list[ScreenInfo]
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        app = QGuiApplication.instance()
-        if app is not None:
-            app.screenAdded.connect(self._on_changed)
-            app.screenRemoved.connect(self._on_removed_screen)
-        self._screens: list[ScreenInfo] = enumerate_screens()
-
-    def _on_changed(self, _screen=None) -> None:
-        logger.info("显示器发生增删，刷新布局")
-        self._screens = enumerate_screens()
-        self.screens_changed.emit(self._screens)
-
-    def _on_removed_screen(self, screen) -> None:
-        logger.info("显示器已断开：%s", screen.name())
-        self._on_changed(screen)
-
-    @property
-    def screens(self) -> list[ScreenInfo]:
-        return self._screens
-
-    def refresh(self) -> list[ScreenInfo]:
-        self._screens = enumerate_screens()
-        return self._screens

@@ -107,7 +107,6 @@ class ShowController(QObject):
     """放映流程编排（v4：引擎链感知）。"""
 
     state_changed = Signal(str)      # ShowState.value
-    request_show_for = Signal(str)   # 开始放映的文件路径（UI 状态记录用）
     show_failed = Signal(str)        # 启动失败信息（UI 状态栏提示）
 
     def __init__(self, page_worker, config, parent=None, chain=None):
@@ -168,7 +167,6 @@ class ShowController(QObject):
         self._show_screen_info = show_screen
         self._presenter_screen = presenter_screen
         self._chain = chain
-        self.request_show_for.emit(str(self._ppt))
         logger.info(
             "放映启动：文件=%s 引擎=%s 路径=%s 模式=%s 目标屏=%s",
             self._ppt.name, show_engine.name,

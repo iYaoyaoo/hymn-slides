@@ -44,7 +44,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("诗歌投影 HymnSlides")
         self.resize(1100, 760)
 
-        self.index_files: list = []  # list[SlideFile]，扫描结果（树构建源）
         self._search_idx: Indexer | None = None
 
         self._build_ui()
@@ -188,14 +187,12 @@ class MainWindow(QMainWindow):
 
     def _on_tree_ready(self, files, stats) -> None:
         """元数据就绪：树立即可用（全文索引继续在后台并行，v4.1 修复首扫空白/卡顿）。"""
-        self.index_files = files
         self.tree.load_files(self.config.main_dir, files)
         if self.search_edit.text().strip():
             self._do_search()
         self.statusBar().showMessage(f"已加载 {stats.scanned} 个诗歌文件，正在后台建立全文索引…")
 
     def _on_scan_done(self, files, stats) -> None:
-        self.index_files = files
         self.tree.load_files(self.config.main_dir, files)
         self.statusBar().showMessage(f"索引完成：共 {stats.scanned} 个诗歌文件", 5000)
         # 搜索态下刷新过滤结果
