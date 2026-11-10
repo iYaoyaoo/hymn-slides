@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.render import lo_detect
+from src.render.engine_detect import detect_engines
 from src.utils import paths
 from src.utils.selftest import run_selftest
 
@@ -119,16 +120,15 @@ def test_selftest_report_structure():
     assert isinstance(ok, bool)
 
 
-def test_selftest_passes_on_this_machine():
-    """已装 LibreOffice 的机器上 selftest 应 PASS（CI 无 LO 环境自动跳过）。"""
-    from src.render.lo_detect import detect_soffice
+def test_selftest_passes_without_engines():
+    """v4：无引擎环境下 selftest 仍应 PASS（引擎为信息项，运行时引导下载）。"""
+    from unittest.mock import patch
 
-    if not detect_soffice().found:
-        import pytest
-
-        pytest.skip("本机未安装 LibreOffice")
-    ok, _ = run_selftest()
+    with patch("src.utils.selftest.detect_engines") as det:
+        det.return_value = detect_engines()  # 任意返回（信息项不再影响判定）
+        ok, report = run_selftest()
     assert ok is True
+    assert "SELFTEST RESULT: PASS" in report
 
 
 # ---------- config ----------
@@ -163,13 +163,10 @@ def test_cli_all_flags_run(qapp):
     """--scan/--render-test/--list-screens/--selftest 均已实现，应正常返回而非 exit 2。"""
     import main as main_mod
 
-    from src.render.lo_detect import detect_soffice
-
-    lo_ok = detect_soffice().found
     rc = main_mod.main(["--list-screens"])
     assert rc == 0
     rc_self = main_mod.main(["--selftest"])
-    assert rc_self == (0 if lo_ok else 1)
+    assert rc_self == 0
 
 
 def test_cli_selftest_exit_code():

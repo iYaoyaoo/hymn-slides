@@ -44,16 +44,20 @@ def _engine_section(cands) -> list[str]:
         logger.info("selftest: %s", line)
     render = cands.first_render()
     show = cands.first_show()
-    lines.append(f"当前渲染引擎: {render.name if render else '无（需安装 PowerPoint/WPS/LibreOffice 之一）'}")
-    lines.append(f"当前放映引擎: {show.name if show else '无（需安装 PowerPoint/WPS/LibreOffice 之一）'}")
+    lines.append(f"当前渲染引擎: {render.name if render else '无'}")
+    lines.append(f"当前放映引擎: {show.name if show else '无'}")
     if render is None or show is None:
-        lines.append("引导：请安装 PowerPoint / WPS / LibreOffice 之一，或访问官网下载")
-        logger.error("selftest：未检测到任何可用引擎")
+        # v4：引擎为运行时依赖（未装时程序引导下载），不作为 selftest 失败条件
+        lines.append("提示：未检测到引擎，请安装 PowerPoint / WPS / LibreOffice 之一（程序内亦会弹窗引导）")
+        logger.warning("selftest：未检测到任何引擎（信息项，不算失败）")
     return lines
 
 
 def run_selftest() -> tuple[bool, str]:
-    """执行环境自检，返回（是否全部通过, 报告文本）。"""
+    """执行环境自检，返回（是否全部通过, 报告文本）。
+
+    v4：PASS 仅取决于 OS 与 Python；引擎探测为信息项（无引擎时程序运行时引导下载）。
+    """
     lines: list[str] = []
     os_lines = _os_section()
     py_lines = _python_section()
@@ -70,9 +74,8 @@ def run_selftest() -> tuple[bool, str]:
 
     os_ok = not any("不在支持平台内" in x for x in os_lines)
     py_ok = not any("需要 3.11+" in x for x in py_lines)
-    engines_ok = cands.any_available()
 
-    ok = os_ok and py_ok and engines_ok
+    ok = os_ok and py_ok
     lines.extend(os_lines)
     lines.extend(py_lines)
     lines.extend(engine_lines)
