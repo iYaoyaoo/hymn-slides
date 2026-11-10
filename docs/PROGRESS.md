@@ -37,7 +37,15 @@
 - **执行计划**：R0 规范文档 → R1 引擎层 → R2 UI 重构 → R3 放映整合 → R4 构建/CI → R5 真机验收 → R6 tag v1.0.0 发布。
 - 平台事实：开发机无 PowerPoint/WPS，COM/AppleScript 引擎靠接口抽象+替身单测+CI 冒烟+人工复核（决策规则 §8）。
 
-## P0 验收记录（2026-11-09）
+## v2 变更实施记录（2026-11-10）
+
+- **R0**：规范 v4.0（project_rules.md 全量改写）、PRD v2.0、本变更单。commit 83f6e6d。
+- **R1 引擎层**（commit fe025b3）：engine_detect.py（三级链探测：注册表 ProgID/文件存在性，手动指定优先；mac WPS 跳过；mac PPT 仅放映能力）、engine.py（BaseEngine/EngineChain 能力路由：render/show 分离，mac PPT→LO 渲染回落）、com_engine.py（Windows COM：PowerPoint/WPS 同构实现，线程 CoInitialize、Slides.Export、TextFrame 遍历、SlideShowWindow 定位）、as_engine.py（mac PowerPoint AppleScript 放映控制；精确 AppleScript 语法列入人工复核）、lo_engine.py、lo_detect 去 bundled、thumbnail.py 引擎链路由改写、indexer WAL（卡死修复①）、config 新增 ppt_path/wps_path、selftest 报告引擎链、pywin32==310（win32 标记）。本机意外发现装有 PowerPoint → mac 放映引擎链=powerpoint（真实可测）。
+- **R2/R3/R5 UI+放映+设置**（commit 9803aaf）：hymn_tree.py（目录树+搜索过滤命中+祖先链+一键展开/收起+右键菜单平台分支+双击放映）、main_window.py 重构（上方大搜索区主视觉+全高树+状态栏；防抖 300ms；Ctrl+F/F5/Esc 快捷键）、删除 finder_view/sidebar/search_bar/preview_panel、ShowController v4（引擎链感知：原生放映会话轮询同步 vs LO 投影窗双路径；投影窗显示后二次断言几何修复"落主屏"；单屏倒计时保留；拔屏检测两路径全覆盖）、设置对话框（引擎探测展示+三引擎手动路径+缓存+倒计时+便携说明）、删除 ThumbWorker。测试全面重写（树构建/过滤/定位/右键命令/双击/搜索树过滤/Esc 恢复/原生会话双屏全流程/演示者结束/拔屏）。77 passed。
+- **R4/R6 构建与交付**（commit 281b2aa）：build.py 单变体（--arch 必选；三重 lipo 断言；产物 windows.zip/mac-arm64.zip/mac-intel.zip）、删除 bundle_lo.py、release.yml 去 LO（三 job 大幅提速）、README/RELEASE_NOTES v4（三级引擎/前置要求/快捷键/已知限制）。
+- **本地验收（R6）**：pytest `77 passed`；`--selftest` PASS（渲染=libreoffice 放映=powerpoint）；`--scan samples` 8 文件（顺带清理用户 app 索引残留 2872 行）；`--render-test samples` 3/3 出图（52 页大文件放映页 65KB）；`--list-screens` 2 屏（含 Sidecar）；本地构建 mac-intel.zip（4812ac74…619a0d）三重架构断言+selftest PASS。v4 GUI 启动 10s 无崩溃。
+- **v4 CI 干跑**：run 42756045267（281b2aa）进行中。
+- 人工复核清单（真机，开发机无法自动化）：Windows PowerPoint/WPS COM 放映与定位、mac PowerPoint AppleScript 放映语法、双屏/单屏真实观感。
 
 - 稳定 Python：uv 安装 cpython-3.12.16 (x86_64) → .venv；依赖：PySide6 6.12.0 / pypdfium2 5.15.1 / pytest 9.2.0 / python-pptx 1.0.2 / pyinstaller 6.22.3（已固定于 requirements.txt）
 - pytest：`13 passed in 0.18s`
