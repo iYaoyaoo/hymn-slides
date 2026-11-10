@@ -47,6 +47,17 @@
 - **v4 CI 干跑**：run 42756045267（281b2aa）进行中。
 - 人工复核清单（真机，开发机无法自动化）：Windows PowerPoint/WPS COM 放映与定位、mac PowerPoint AppleScript 放映语法、双屏/单屏真实观感。
 
+## v4.1 修复（2026-11-10，用户真机反馈：2872 文件首扫树空白+卡顿）
+
+- **根因 1（致命，树空白）**：ScanWorker 把"元数据扫描"与"全文提取"串在一个 done 信号里——2872 文件的全文转换需数小时，期间树永远空白。
+  修复：新增 `tree_ready` 信号，元数据同步完成立即发（树秒出、可搜索文件名）；全文提取降为后台任务（状态栏提示"后台建立全文索引 x/y（可正常使用）"）。
+- **根因 2（慢）**：全文提取全局转换锁串行（每文件 5-15s × 2872 ≈ 数小时）。
+  修复：3 路 ThreadPoolExecutor 并行 + converter 移除全局锁 + LO profile 改为**每线程**子目录（`p{pid}_{tid}`，并行无头实例互不冲突，同时天然支持用户双开）；3000 文件预计 40-80 分钟后台完成（期间应用完全可用）。
+- **根因 3（脆弱）**：单文件非 RenderError 异常会中断整个回填线程 → done 永不发出。修复：逐文件兜底捕获，失败仅记日志跳过。
+- **附带发现并修复（真实索引缺陷）**：`sync_scan` 会删除**不属于本次扫描根**的数据库行（此前 --scan samples 误删用户 2872 行真实索引即此因）。修复：删除与全文回填均限定扫描根（`is_relative_to`），多根历史索引互不破坏。
+- 测试：新增并行/韧性/根过滤测试（替身 cache，多线程断言、失败文件 page_count 保持 NULL、外部根行不触碰）；`78 passed`。真实素材 8/8 全文提取验证 ✓。
+- 本地构建 mac-intel.zip SHA256 9fa9d9d7…b63a78（三重断言+selftest PASS）；CI 干跑 run（72518b1）进行中。
+
 - 稳定 Python：uv 安装 cpython-3.12.16 (x86_64) → .venv；依赖：PySide6 6.12.0 / pypdfium2 5.15.1 / pytest 9.2.0 / python-pptx 1.0.2 / pyinstaller 6.22.3（已固定于 requirements.txt）
 - pytest：`13 passed in 0.18s`
 - `python3 main.py --selftest` → `SELFTEST RESULT: PASS`（OS: Darwin 24.6.0 x86_64；Python 3.12.16；LibreOffice 系统安装命中 /Applications/LibreOffice.app/Contents/MacOS/soffice，来源=system）
