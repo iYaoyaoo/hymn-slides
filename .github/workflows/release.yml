@@ -16,10 +16,10 @@ env:
   PYTHONIOENCODING: "utf-8"
 
 jobs:
-  # ① Windows x64：pytest → LO 下载提取 → lite+full 构建 → zip → SHA256
+  # ① Windows x64：pytest → 构建 → zip → SHA256
   windows:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -33,34 +33,20 @@ jobs:
       - name: pytest
         run: python -m pytest tests/ -q
 
-      - name: 下载并提取 LibreOffice（Windows msi）
-        run: python tools/bundle_lo.py --platform windows-x64 --download
-
-      - name: 构建 lite（runner 无系统 LO，selftest 由 full 变体校验，记录跳过）
-        run: python tools/build.py --variant lite --arch x86_64 --skip-selftest
-
-      - name: 构建 full
-        run: python tools/build.py --variant full --arch x86_64
+      - name: 构建（x86_64）
+        run: python tools/build.py --arch x86_64
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: windows-lite
-          path: dist/windows-lite.zip
-
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-full
-          path: dist/windows-full.zip
+          name: windows
+          path: dist/windows.zip
 
       - name: SHA256
         shell: pwsh
         run: |
-          Get-FileHash dist/windows-lite.zip -Algorithm SHA256 | Format-List
-          Get-FileHash dist/windows-full.zip -Algorithm SHA256 | Format-List
-          "windows-lite.zip  $((Get-FileHash dist/windows-lite.zip -Algorithm SHA256).Hash.ToLower())" | Out-File -Append SHA256SUMS.txt -Encoding utf8
-          "windows-full.zip  $((Get-FileHash dist/windows-full.zip -Algorithm SHA256).Hash.ToLower())" | Out-File -Append SHA256SUMS.txt -Encoding utf8
+          Get-FileHash dist/windows.zip -Algorithm SHA256 | Format-List
+          "windows.zip  $((Get-FileHash dist/windows.zip -Algorithm SHA256).Hash.ToLower())" | Out-File -Append SHA256SUMS.txt -Encoding utf8
 
       - name: 上传校验和
         uses: actions/upload-artifact@v4
@@ -68,10 +54,10 @@ jobs:
           name: windows-sha256
           path: SHA256SUMS.txt
 
-  # ② macOS arm64 原生：pytest(offscreen) → LO dmg → full --arch arm64 → zip → SHA256
+  # ② macOS arm64 原生：pytest(offscreen) → 构建 --arch arm64 → zip → SHA256
   mac-arm64:
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -85,21 +71,18 @@ jobs:
       - name: pytest（offscreen）
         run: python3 -m pytest tests/ -q
 
-      - name: 下载并提取 LibreOffice（mac aarch64 dmg）
-        run: python3 tools/bundle_lo.py --platform mac-arm64 --download
-
-      - name: 构建 full（arm64，含 lipo 架构断言）
-        run: python3 tools/build.py --variant full --arch arm64
+      - name: 构建（arm64，含 lipo 架构断言）
+        run: python3 tools/build.py --arch arm64
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: mac-arm64-full
-          path: dist/mac-arm64-full.zip
+          name: mac-arm64
+          path: dist/mac-arm64.zip
 
       - name: SHA256
         run: |
-          shasum -a 256 dist/mac-arm64-full.zip | tee -a SHA256SUMS.txt
+          shasum -a 256 dist/mac-arm64.zip | tee -a SHA256SUMS.txt
 
       - name: 上传校验和
         uses: actions/upload-artifact@v4
@@ -110,7 +93,7 @@ jobs:
   # ③ macOS Intel（Rosetta 路径）：python.org universal2 → arch -x86_64 全链
   mac-intel-rosetta:
     runs-on: macos-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -131,9 +114,6 @@ jobs:
       - name: pytest（offscreen；异常时降级 --selftest 并记录，架构断言不豁免）
         run: |
           PY="arch -x86_64 /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12"
-          # 先提取 LO 到仓库 libreoffice/（符号链接），保证降级 --selftest 可命中捆绑候选
-          $PY tools/bundle_lo.py --platform mac-intel --download
-          ln -sfn "$PWD/dist_staging/libreoffice" "$PWD/libreoffice"
           export QT_QPA_PLATFORM=offscreen
           if $PY -m pytest tests/ -q; then
             echo "pytest 通过"
@@ -142,23 +122,20 @@ jobs:
             $PY main.py --selftest
           fi
 
-      - name: 构建 full（x86_64，含 lipo 架构断言，不可豁免）
+      - name: 构建（x86_64，含 lipo 架构断言，不可豁免）
         run: |
           PY="arch -x86_64 /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12"
-          $PY tools/build.py --variant full --arch x86_64
-
-      - name: 清理符号链接（防打包污染）
-        run: rm -f libreoffice
+          $PY tools/build.py --arch x86_64
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: mac-intel-full
-          path: dist/mac-intel-full.zip
+          name: mac-intel
+          path: dist/mac-intel.zip
 
       - name: SHA256
         run: |
-          shasum -a 256 dist/mac-intel-full.zip | tee -a SHA256SUMS.txt
+          shasum -a 256 dist/mac-intel.zip | tee -a SHA256SUMS.txt
 
       - name: 上传校验和
         uses: actions/upload-artifact@v4
@@ -166,7 +143,7 @@ jobs:
           name: mac-intel-sha256
           path: SHA256SUMS.txt
 
-  # 发布（仅 tag 触发）：收集 4 产物 → GitHub Release
+  # 发布（仅 tag 触发）：收集 3 产物 → GitHub Release
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [windows, mac-arm64, mac-intel-rosetta]
@@ -182,7 +159,7 @@ jobs:
       - name: 汇总产物与校验和
         run: |
           mkdir -p release
-          find artifacts -name "*.zip" -exec cp {} release/ \;
+          find artifacts -name "*.zip" -not -path "*sha256*" -exec cp {} release/ \;
           cat artifacts/*-sha256/SHA256SUMS.txt | tee SHA256SUMS.txt
           ls -l release/
 
@@ -193,6 +170,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "HymnSlides ${GITHUB_REF_NAME}" \
             --notes-file docs/RELEASE_NOTES.md \
-            release/windows-lite.zip release/windows-full.zip \
-            release/mac-arm64-full.zip release/mac-intel-full.zip
+            release/windows.zip release/mac-arm64.zip release/mac-intel.zip
           gh release upload "${GITHUB_REF_NAME}" SHA256SUMS.txt --clobber
