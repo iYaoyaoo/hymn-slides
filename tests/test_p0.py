@@ -50,48 +50,62 @@ def test_log_dir_created(tmp_path, monkeypatch):
 
 def test_detect_soffice_config_priority(tmp_path, monkeypatch):
     fake = _make_fake_soffice(tmp_path, "custom_soffice")
-    monkeypatch.setattr(lo_detect, "_bundled_candidates", lambda: [])
     monkeypatch.setattr(lo_detect, "_system_candidates", lambda: [])
     info = lo_detect.detect_soffice(str(fake))
     assert info.found and info.source == "config" and info.path == fake
 
 
 def test_detect_soffice_config_invalid_falls_through(tmp_path, monkeypatch):
-    bundled = tmp_path / "bundled"
-    bundled.mkdir()
-    fake = _make_fake_soffice(bundled)
-    monkeypatch.setattr(lo_detect, "_bundled_candidates", lambda: [fake])
-    monkeypatch.setattr(lo_detect, "_system_candidates", lambda: [])
+    fake = _make_fake_soffice(tmp_path)
+    monkeypatch.setattr(lo_detect, "_system_candidates", lambda: [fake])
     info = lo_detect.detect_soffice(str(tmp_path / "no_such_file"))
-    assert info.found and info.source == "bundled"
+    assert info.found and info.source == "system"
 
 
 def test_detect_soffice_system_last(tmp_path, monkeypatch):
     fake = _make_fake_soffice(tmp_path)
-    monkeypatch.setattr(lo_detect, "_bundled_candidates", lambda: [tmp_path / "absent"])
     monkeypatch.setattr(lo_detect, "_system_candidates", lambda: [fake])
     info = lo_detect.detect_soffice("")
     assert info.found and info.source == "system"
 
 
 def test_detect_soffice_not_found(tmp_path, monkeypatch):
-    monkeypatch.setattr(lo_detect, "_bundled_candidates", lambda: [tmp_path / "absent"])
     monkeypatch.setattr(lo_detect, "_system_candidates", lambda: [tmp_path / "absent2"])
     info = lo_detect.detect_soffice("")
     assert not info.found
     assert any("未找到" not in c for c in info.candidates)
 
 
-def test_bundled_candidates_dev_layout_macos():
-    """开发态/CI：<repo>/libreoffice/LibreOffice.app 应为 macOS 捆绑候选。"""
-    import sys as _sys
+def test_engine_detect_priority_chain():
+    """v4 三级链：顺序 powerpoint → wps → libreoffice；first_show/first_render 路由正确。"""
+    from src.render.engine_detect import (
+        ENGINE_LIBREOFFICE,
+        ENGINE_POWERPOINT,
+        ENGINE_WPS,
+        EngineCandidates,
+        EngineInfo,
+    )
 
-    if _sys.platform != "darwin":
-        import pytest as _pytest
+    cands = EngineCandidates(
+        infos=[
+            EngineInfo(ENGINE_POWERPOINT, False, False, False),
+            EngineInfo(ENGINE_WPS, False, False, False),
+            EngineInfo(ENGINE_LIBREOFFICE, True, True, True),
+        ]
+    )
+    assert cands.first_show().name == ENGINE_LIBREOFFICE
+    assert cands.first_render().name == ENGINE_LIBREOFFICE
 
-        _pytest.skip("仅 macOS")
-    cands = lo_detect._bundled_candidates()
-    assert any("libreoffice" in str(c) and "LibreOffice.app" in str(c) for c in cands)
+    # mac 场景：PPT 只具备放映 → show=ppt，render=lo
+    mac = EngineCandidates(
+        infos=[
+            EngineInfo(ENGINE_POWERPOINT, True, False, True),
+            EngineInfo(ENGINE_WPS, False, False, False),
+            EngineInfo(ENGINE_LIBREOFFICE, True, True, True),
+        ]
+    )
+    assert mac.first_show().name == ENGINE_POWERPOINT
+    assert mac.first_render().name == ENGINE_LIBREOFFICE
 
 
 # ---------- selftest ----------

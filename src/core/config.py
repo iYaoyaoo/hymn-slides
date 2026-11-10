@@ -13,7 +13,9 @@ _APP = "HymnSlides"
 
 # 键名（固定，勿改）
 KEY_MAIN_DIR = "main_dir"
-KEY_SOFFICE = "soffice_path"
+KEY_SOFFICE = "soffice_path"          # LibreOffice 手动路径（空=自动）
+KEY_PPT_PATH = "ppt_path"             # PowerPoint 手动路径（空=自动）
+KEY_WPS_PATH = "wps_path"             # WPS 手动路径（空=自动）
 KEY_CACHE_LIMIT_MB = "cache_limit_mb"
 KEY_SINGLE_SCREEN_CONFIRM = "single_screen_confirm"
 
@@ -43,13 +45,27 @@ class Config:
     def set_main_dir(self, path: Path) -> None:
         self._settings.setValue(KEY_MAIN_DIR, str(path))
 
-    # ---- soffice 路径（手动指定，空=自动探测） ----
+    # ---- 引擎路径（手动指定，空=自动探测，v4 三级链） ----
     @property
     def soffice_path(self) -> str:
         return str(self._settings.value(KEY_SOFFICE, ""))
 
     def set_soffice_path(self, value: str) -> None:
         self._settings.setValue(KEY_SOFFICE, value)
+
+    @property
+    def ppt_path(self) -> str:
+        return str(self._settings.value(KEY_PPT_PATH, ""))
+
+    def set_ppt_path(self, value: str) -> None:
+        self._settings.setValue(KEY_PPT_PATH, value)
+
+    @property
+    def wps_path(self) -> str:
+        return str(self._settings.value(KEY_WPS_PATH, ""))
+
+    def set_wps_path(self, value: str) -> None:
+        self._settings.setValue(KEY_WPS_PATH, value)
 
     # ---- 缓存上限（MB） ----
     @property

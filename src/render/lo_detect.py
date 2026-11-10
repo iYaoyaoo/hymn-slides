@@ -1,7 +1,7 @@
-"""soffice 探测：①配置手动指定 ②捆绑目录 ③系统安装（规范 §3-7）。
+"""LibreOffice 探测（v4 规范 §3-7）：①配置手动指定 ②系统安装。
 
+v4 起 LibreOffice 不再便携捆绑（bundle_lo 移除），探测仅两步。
 结果逐候选写日志；全部失败返回 None，由调用方给出引导提示。
-不做平台专属 API 以外的假设；Windows 注册表探测属系统安装来源的一部分。
 """
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.utils import paths
 from src.utils.logger import get_logger
 
 logger = get_logger("lo_detect")
@@ -19,40 +18,12 @@ logger = get_logger("lo_detect")
 @dataclass
 class SofficeInfo:
     path: Path | None
-    source: str  # "config" | "bundled" | "system" | ""
+    source: str  # "config" | "system" | ""
     candidates: list[str]  # 探测轨迹（每项含结果说明）
 
     @property
     def found(self) -> bool:
         return self.path is not None
-
-
-def _bundled_candidates() -> list[Path]:
-    """捆绑目录候选（发布包内 libreoffice/）。"""
-    cands: list[Path] = []
-    bundle = paths.app_bundle_dir()
-    exe_dir = paths.exe_dir()
-    if sys.platform == "darwin":
-        if bundle is not None:
-            # <.app>/Contents/Resources/libreoffice/LibreOffice.app/Contents/MacOS/soffice
-            cands.append(
-                bundle
-                / "Contents"
-                / "Resources"
-                / "libreoffice"
-                / "LibreOffice.app"
-                / "Contents"
-                / "MacOS"
-                / "soffice"
-            )
-        # 开发态/CI：<repo>/libreoffice/LibreOffice.app/Contents/MacOS/soffice
-        cands.append(
-            exe_dir / "libreoffice" / "LibreOffice.app" / "Contents" / "MacOS" / "soffice"
-        )
-        return cands
-    # Windows：<exe目录>/libreoffice/program/soffice.exe
-    names = ["soffice.exe", "soffice"] if os.name == "nt" else ["soffice"]
-    return [exe_dir / "libreoffice" / "program" / n for n in names]
 
 
 def _system_candidates() -> list[Path]:
@@ -97,7 +68,7 @@ def _is_executable(p: Path) -> bool:
 
 
 def detect_soffice(config_value: str = "") -> SofficeInfo:
-    """按 配置→捆绑→系统 顺序探测 soffice，写日志并返回结果。
+    """按 配置→系统安装 顺序探测 soffice，写日志并返回结果。
 
     config_value: QSettings 中用户手动指定的路径（可为空）。
     """
@@ -113,15 +84,7 @@ def detect_soffice(config_value: str = "") -> SofficeInfo:
         candidates.append(f"config: {p}（不存在或不可执行）")
         logger.warning("soffice 探测：配置指定路径无效：%s", p)
 
-    # ② 捆绑目录
-    for p in _bundled_candidates():
-        if _is_executable(p):
-            candidates.append(f"bundled: {p}（命中）")
-            logger.info("soffice 探测：捆绑目录命中 %s", p)
-            return SofficeInfo(p, "bundled", candidates)
-        candidates.append(f"bundled: {p}（不存在）")
-
-    # ③ 系统安装
+    # ② 系统安装
     for p in _system_candidates():
         if _is_executable(p):
             candidates.append(f"system: {p}（命中）")
@@ -129,5 +92,5 @@ def detect_soffice(config_value: str = "") -> SofficeInfo:
             return SofficeInfo(p, "system", candidates)
         candidates.append(f"system: {p}（不存在）")
 
-    logger.error("soffice 探测：三个来源均未找到 LibreOffice")
+    logger.error("soffice 探测：未找到 LibreOffice")
     return SofficeInfo(None, "", candidates)

@@ -43,8 +43,10 @@ class Indexer:
         db_path = Path(db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         # timeout 30s：容忍并发进程（如用户正运行 app）短暂持有写锁
+        # WAL 模式：读写互不阻塞（v4 修复"扫描大目录卡死"）
         self.db_path = db_path
         self._conn = sqlite3.connect(db_path, timeout=30)
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
