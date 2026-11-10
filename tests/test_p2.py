@@ -140,8 +140,13 @@ def test_cache_thumb_and_show(tmp_path, monkeypatch):
 
 
 def test_cache_texts(tmp_path, monkeypatch):
-    """slide_texts 经引擎链路由（LO → PDF 提取；_lo_pdf_provider 用夹具替身）。"""
+    """slide_texts 经引擎链路由（LO → PDF 提取；引擎与 PDF 均用替身，无本机引擎可跑）。"""
+
+    class _LoStub:
+        name = "libreoffice"
+
     cache = RenderCache(root=tmp_path / "cache")
+    monkeypatch.setattr(cache, "_render_engine", lambda: _LoStub())
     monkeypatch.setattr(cache, "_lo_pdf_provider", lambda p: FIXTURE_PDF)
     texts = cache.slide_texts(Path("/任意/诗歌.pptx"))
     assert texts and "奇异恩典" in texts[0][1]
