@@ -1,6 +1,8 @@
 # PRD：诗歌投影（HymnSlides）
 
-版本：v1.0 ｜ 依据：.trae/rules/project_rules.md v3.3（唯一权威规范）
+版本：v2.0 ｜ 依据：.trae/rules/project_rules.md v4.0（唯一权威规范）
+
+> **v2 变更单（2026-11-10，用户确认）**：①引擎三级回退 PowerPoint→WPS→LibreOffice（全管线，仅系统安装，不再内置 LO）；②UI 重构：上方大搜索区+下方全高树视图，移除中间内容区与预览功能，树支持一键展开/收起、右键"在文件管理器中显示"、双击放映；③产物 3 份：windows.zip / mac-arm64.zip / mac-intel.zip；④设置新增引擎选择；⑤修复扫描大目录卡死（WAL）与双屏放映落主屏。本文其余内容以 v4.0 规范为准，冲突处以下述为准。
 
 ## 1. 产品定位
 
